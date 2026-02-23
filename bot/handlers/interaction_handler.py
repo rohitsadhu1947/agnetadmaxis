@@ -431,6 +431,41 @@ async def receive_notes_voice(update: Update, context: ContextTypes.DEFAULT_TYPE
         return InteractionStates.ADD_NOTES
 
 
+async def receive_notes_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle document sent as notes in the quick log path."""
+    doc = update.message.document
+    caption = update.message.caption or ""
+    file_name = doc.file_name if doc else "document"
+    context.user_data["ilog"]["notes"] = caption or f"[Document: {file_name}]"
+    if doc and doc.file_id:
+        context.user_data["ilog"]["voice_file_id"] = doc.file_id
+
+    await update.message.reply_text(
+        f"\U0001F4CE <b>Document received:</b> {file_name}\n"
+        f"Proceeding to confirmation...",
+        parse_mode="HTML",
+    )
+    summary = format_interaction_summary(context.user_data["ilog"])
+    await update.message.reply_text(summary, parse_mode="HTML", reply_markup=confirm_keyboard())
+    return InteractionStates.CONFIRM
+
+
+async def receive_notes_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle photo sent as notes in the quick log path."""
+    caption = update.message.caption or ""
+    context.user_data["ilog"]["notes"] = caption or "[Photo attached]"
+    if update.message.photo:
+        context.user_data["ilog"]["voice_file_id"] = update.message.photo[-1].file_id
+
+    await update.message.reply_text(
+        f"\U0001F4F7 <b>Photo received!</b>\nProceeding to confirmation...",
+        parse_mode="HTML",
+    )
+    summary = format_interaction_summary(context.user_data["ilog"])
+    await update.message.reply_text(summary, parse_mode="HTML", reply_markup=confirm_keyboard())
+    return InteractionStates.CONFIRM
+
+
 # ---------------------------------------------------------------------------
 # Step 7: Confirm (Quick Log)
 # ---------------------------------------------------------------------------
@@ -675,6 +710,37 @@ async def fb_receive_notes_voice(update: Update, context: ContextTypes.DEFAULT_T
         return InteractionStates.FB_ADD_NOTES
 
 
+async def fb_receive_notes_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle document sent as feedback notes in the feedback sub-flow."""
+    doc = update.message.document
+    caption = update.message.caption or ""
+    file_name = doc.file_name if doc else "document"
+    context.user_data["ilog"]["fb_free_text"] = caption or f"[Document: {file_name}]"
+    if doc and doc.file_id:
+        context.user_data["ilog"]["fb_voice_file_id"] = doc.file_id
+
+    await update.message.reply_text(
+        f"\U0001F4CE <b>Document received:</b> {file_name}\n"
+        f"Proceeding to confirmation...",
+        parse_mode="HTML",
+    )
+    return await _fb_show_confirmation_msg(update, context)
+
+
+async def fb_receive_notes_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle photo sent as feedback notes in the feedback sub-flow."""
+    caption = update.message.caption or ""
+    context.user_data["ilog"]["fb_free_text"] = caption or "[Photo attached]"
+    if update.message.photo:
+        context.user_data["ilog"]["fb_voice_file_id"] = update.message.photo[-1].file_id
+
+    await update.message.reply_text(
+        f"\U0001F4F7 <b>Photo received!</b>\nProceeding to confirmation...",
+        parse_mode="HTML",
+    )
+    return await _fb_show_confirmation_msg(update, context)
+
+
 # ---------------------------------------------------------------------------
 # FB Step 4: Confirm and submit
 # ---------------------------------------------------------------------------
@@ -874,6 +940,8 @@ def build_interaction_handler() -> ConversationHandler:
                 CallbackQueryHandler(notes_callback, pattern=r"^notes_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_notes_text),
                 MessageHandler(filters.VOICE, receive_notes_voice),
+                MessageHandler(filters.Document.ALL, receive_notes_document),
+                MessageHandler(filters.PHOTO, receive_notes_photo),
                 _cancel_cb(),
             ],
             InteractionStates.CONFIRM: [
@@ -893,6 +961,8 @@ def build_interaction_handler() -> ConversationHandler:
                 CallbackQueryHandler(fb_notes_callback, pattern=r"^fnotes_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, fb_receive_notes_text),
                 MessageHandler(filters.VOICE, fb_receive_notes_voice),
+                MessageHandler(filters.Document.ALL, fb_receive_notes_document),
+                MessageHandler(filters.PHOTO, fb_receive_notes_photo),
                 _cancel_cb(),
             ],
             InteractionStates.FB_CONFIRM: [

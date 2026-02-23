@@ -13,7 +13,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy project files (bust cache on every deploy)
+ARG CACHEBUST=1
 COPY backend/ ./backend/
 COPY bot/ ./bot/
 COPY start.py .

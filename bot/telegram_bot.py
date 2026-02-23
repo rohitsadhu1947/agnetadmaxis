@@ -235,6 +235,23 @@ async def close_ticket_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ---------------------------------------------------------------------------
+# /version command - check which version is running
+# ---------------------------------------------------------------------------
+
+async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show bot version — useful to verify Railway deployed the latest code."""
+    import datetime
+    text = (
+        f"{E_GEAR} <b>ADM Bot Version</b>\n\n"
+        f"Version: <code>2.4.0-2026-02-23</code>\n"
+        f"Server time: <code>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+        f"API: <code>{config.API_BASE_URL}</code>\n"
+        f"API healthy: <code>{api_client.is_healthy}</code>"
+    )
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+# ---------------------------------------------------------------------------
 # Main menu callback handler (for inline keyboard buttons on main menu)
 # ---------------------------------------------------------------------------
 
@@ -351,7 +368,8 @@ def main() -> None:
         )
         sys.exit(1)
 
-    logger.info("Starting ADM Platform Telegram Bot...")
+    BOT_VERSION = "2.4.0-2026-02-23"
+    logger.info("Starting ADM Platform Telegram Bot v%s", BOT_VERSION)
     logger.info("API Base URL: %s", config.API_BASE_URL)
 
     # Build application
@@ -409,6 +427,9 @@ def main() -> None:
 
     # /tickets - view open feedback tickets
     application.add_handler(CommandHandler("tickets", tickets_command))
+
+    # /version - check running version
+    application.add_handler(CommandHandler("version", version_command))
 
     # ------------------------------------------------------------------
     # Register callback query handlers for menus and actions
