@@ -1,8 +1,14 @@
 """
 Async HTTP client for communicating with the ADM Platform FastAPI backend.
 All data operations go through this client.
+
+Features:
+- Automatic retry with exponential backoff for transient failures
+- Configurable timeouts per request type
+- Connection health tracking
 """
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -16,10 +22,12 @@ logger = logging.getLogger(__name__)
 class APIClient:
     """Async HTTP client wrapper for the ADM Platform API."""
 
-    def __init__(self, base_url: Optional[str] = None, timeout: int = 15):
+    def __init__(self, base_url: Optional[str] = None, timeout: int = 30):
         self.base_url = (base_url or config.API_BASE_URL).rstrip("/")
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = 10
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -27,6 +35,12 @@ class APIClient:
                 base_url=self.base_url,
                 timeout=self.timeout,
                 headers={"Content-Type": "application/json"},
+                # Keep connections alive for performance
+                limits=httpx.Limits(
+                    max_keepalive_connections=5,
+                    max_connections=10,
+                    keepalive_expiry=30,
+                ),
             )
         return self._client
 
@@ -34,28 +48,86 @@ class APIClient:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
+    @property
+    def is_healthy(self) -> bool:
+        """Whether the API appears reachable (no long streak of failures)."""
+        return self._consecutive_failures < self._max_consecutive_failures
+
     # ------------------------------------------------------------------
-    # Generic HTTP helpers
+    # Generic HTTP helpers with retry
     # ------------------------------------------------------------------
 
     async def _request(
-        self, method: str, path: str, **kwargs
+        self,
+        method: str,
+        path: str,
+        retries: int = 2,
+        retry_delay: float = 1.0,
+        **kwargs,
     ) -> dict[str, Any]:
-        """Execute an HTTP request and return the JSON response."""
-        client = await self._get_client()
-        try:
-            response = await client.request(method, path, **kwargs)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "API %s %s returned %s: %s",
-                method, path, exc.response.status_code, exc.response.text,
-            )
-            return {"error": True, "status": exc.response.status_code, "detail": exc.response.text}
-        except httpx.RequestError as exc:
-            logger.error("API request failed for %s %s: %s", method, path, exc)
-            return {"error": True, "detail": str(exc)}
+        """Execute an HTTP request with automatic retry on transient errors."""
+        last_exc = None
+
+        for attempt in range(1, retries + 2):  # +2 because range is exclusive
+            client = await self._get_client()
+            try:
+                response = await client.request(method, path, **kwargs)
+                response.raise_for_status()
+                self._consecutive_failures = 0  # Reset on success
+                return response.json()
+
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                # Don't retry client errors (4xx) except 429 (rate limit)
+                if 400 <= status < 500 and status != 429:
+                    self._consecutive_failures = 0  # Client error = server is alive
+                    logger.warning(
+                        "API %s %s → %d: %s",
+                        method, path, status, exc.response.text[:200],
+                    )
+                    return {
+                        "error": True,
+                        "status": status,
+                        "detail": exc.response.text,
+                    }
+                # Retry on 5xx or 429
+                last_exc = exc
+                logger.warning(
+                    "API %s %s → %d (attempt %d/%d)",
+                    method, path, status, attempt, retries + 1,
+                )
+
+            except httpx.RequestError as exc:
+                last_exc = exc
+                self._consecutive_failures += 1
+                logger.warning(
+                    "API %s %s connection error (attempt %d/%d): %s",
+                    method, path, attempt, retries + 1, exc,
+                )
+                # Recreate client on connection errors
+                try:
+                    await self._client.aclose()
+                except Exception:
+                    pass
+                self._client = None
+
+            # Wait before retry (exponential backoff)
+            if attempt <= retries:
+                delay = retry_delay * (2 ** (attempt - 1))
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        logger.error(
+            "API %s %s failed after %d attempts: %s",
+            method, path, retries + 1, last_exc,
+        )
+        if isinstance(last_exc, httpx.HTTPStatusError):
+            return {
+                "error": True,
+                "status": last_exc.response.status_code,
+                "detail": last_exc.response.text,
+            }
+        return {"error": True, "detail": str(last_exc)}
 
     async def get(self, path: str, params: Optional[dict] = None) -> dict:
         return await self._request("GET", path, params=params)

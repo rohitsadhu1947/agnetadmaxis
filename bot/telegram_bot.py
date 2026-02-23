@@ -82,17 +82,31 @@ async def agents_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     telegram_id = update.effective_user.id
 
     agents_resp = await api_client.get_assigned_agents(telegram_id)
+
+    if agents_resp.get("error"):
+        # API error — distinguish from "no agents"
+        detail = agents_resp.get("detail", "Connection error")
+        if len(str(detail)) > 100:
+            detail = str(detail)[:100] + "..."
+        text = (
+            f"{E_CROSS} <b>Could not load agents</b>\n\n"
+            f"Server se connect nahi ho pa raha.\n"
+            f"Please try again in a moment.\n\n"
+            f"<i>Error: {detail}</i>"
+        )
+        sent_msg = await update.message.reply_text(text, parse_mode="HTML")
+        await send_voice_response(sent_msg, text)
+        return
+
     agents = agents_resp.get("agents", agents_resp.get("data", []))
     total_pages = agents_resp.get("total_pages", 1)
 
-    if not agents or agents_resp.get("error"):
+    if not agents:
         text = (
             f"{E_WARNING} <b>No agents found</b>\n\n"
-            "You don't have any agents assigned yet. "
+            "You don't have any agents assigned yet.\n"
             "Ask your admin to assign agents to you, or add them via the web dashboard."
         )
-        if agents_resp.get("error"):
-            text += f"\n\n<i>API error: {agents_resp.get('error')}</i>"
         sent_msg = await update.message.reply_text(text, parse_mode="HTML")
     else:
         text = format_agent_list(agents, page=1, total_pages=total_pages)
@@ -109,7 +123,13 @@ async def tickets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     telegram_id = str(update.effective_user.id)
     profile = await api_client.get_adm_profile(telegram_id)
     if not profile or profile.get("error"):
-        await update.message.reply_text("❌ Profile not found. Use /start to register.")
+        status = profile.get("status", 0) if profile else 0
+        if status == 404:
+            await update.message.reply_text("❌ Profile not found. Use /start to register.")
+        else:
+            await update.message.reply_text(
+                f"{E_WARNING} Could not connect to server. Please try again in a moment."
+            )
         return
 
     adm_id = profile.get("id", profile.get("adm_id"))
