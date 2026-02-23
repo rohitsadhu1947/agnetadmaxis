@@ -283,6 +283,10 @@ async def select_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def search_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle agent search."""
+    if "fb" not in context.user_data:
+        await update.message.reply_text(f"{E_WARNING} Session expired. Please start again with /feedback", parse_mode="HTML")
+        return ConversationHandler.END
+
     search_text = update.message.text.strip()
     telegram_id = update.effective_user.id
 
@@ -465,6 +469,9 @@ async def notes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def receive_notes_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive free text notes."""
+    if "fb" not in context.user_data:
+        await update.message.reply_text(f"{E_WARNING} Session expired. Please start again with /feedback", parse_mode="HTML")
+        return ConversationHandler.END
     context.user_data["fb"]["free_text"] = update.message.text.strip()
     return await _show_confirmation_msg(update, context)
 

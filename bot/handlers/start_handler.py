@@ -1,6 +1,13 @@
 """
 Start / Registration handler for the ADM Platform Telegram Bot.
 Handles /start command and multi-step registration flow.
+
+CRITICAL SAFETY:
+- Every text handler checks context.user_data for "reg_active" flag
+- If flag is missing (bot restarted, state leaked from another flow),
+  the handler aborts immediately and directs user to use a command
+- Registration only proceeds on explicit 404 from API (user truly not found)
+- _abort_if_already_registered() guards every step
 """
 
 import logging
@@ -24,12 +31,76 @@ from utils.formatters import (
     error_generic,
     greeting,
     E_CHECK, E_CROSS, E_PENCIL, E_PERSON, E_STAR,
-    E_GEAR, E_SPARKLE,
+    E_GEAR, E_SPARKLE, E_WARNING,
 )
 from utils.keyboards import main_menu_keyboard, confirm_keyboard, yes_no_keyboard
 from utils.voice import send_voice_response
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Safety helpers
+# ---------------------------------------------------------------------------
+
+async def _abort_if_already_registered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if user is already registered. If so, abort registration and return True."""
+    telegram_id = update.effective_user.id
+    profile = await api_client.get_adm_profile(telegram_id)
+    if profile and not profile.get("error"):
+        name = profile.get("name", update.effective_user.first_name or "ADM")
+        await update.message.reply_text(
+            f"{E_CHECK} <b>Aap pehle se registered hain, {name}!</b>\n\n"
+            f"You are already registered. No need to register again.\n"
+            f"Use /help to see available commands.",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(),
+        )
+        # Clean up any partial registration data
+        _cleanup_reg_data(context)
+        return True
+    return False
+
+
+def _is_registration_active(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if this user actually initiated registration via /start.
+
+    This flag is set ONLY in start_command() when the API returns 404.
+    If missing, the user did NOT start registration — their text is stray.
+    """
+    return context.user_data.get("reg_active") is True
+
+
+def _cleanup_reg_data(context: ContextTypes.DEFAULT_TYPE):
+    """Remove all registration-related keys from user_data."""
+    for key in list(context.user_data.keys()):
+        if key.startswith("reg_"):
+            del context.user_data[key]
+
+
+async def _reject_stray_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Called when text hits a registration handler without an active registration.
+
+    This happens after bot restart — the ConversationHandler thinks the user
+    is in a registration state, but context.user_data has no "reg_active" flag.
+    """
+    logger.warning(
+        "REGISTRATION GUARD: Rejecting stray text from user %s: %s",
+        update.effective_user.id,
+        update.message.text[:50] if update.message and update.message.text else "?",
+    )
+    _cleanup_reg_data(context)
+    await update.message.reply_text(
+        f"{E_WARNING} <b>Session expired</b>\n\n"
+        f"Your previous flow was interrupted (bot restarted).\n"
+        f"Pichla flow khatam ho gaya.\n\n"
+        f"Please use a command to continue:\n"
+        f"/log — Log an interaction\n"
+        f"/feedback — Capture feedback\n"
+        f"/help — See all commands",
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +112,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user = update.effective_user
     telegram_id = user.id
     logger.info(">>> /start command received from user %s (%s)", telegram_id, user.first_name)
+
+    # Always clean up any stale reg data from a previous attempt
+    _cleanup_reg_data(context)
 
     # Check if already registered
     profile = await api_client.get_adm_profile(telegram_id)
@@ -78,6 +152,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # status == 404 means genuinely not registered — fall through to registration
 
     # New user - start registration
+    # SET THE ACTIVE FLAG — this is the only place it gets set
+    context.user_data["reg_active"] = True
+
     welcome_text = welcome_message()
     sent_msg = await update.message.reply_text(
         welcome_text,
@@ -88,33 +165,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 # ---------------------------------------------------------------------------
-# Registration steps
+# Registration steps — each one guards against stray text
 # ---------------------------------------------------------------------------
-
-async def _abort_if_already_registered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user is already registered. If so, abort registration and return True."""
-    telegram_id = update.effective_user.id
-    profile = await api_client.get_adm_profile(telegram_id)
-    if profile and not profile.get("error"):
-        name = profile.get("name", update.effective_user.first_name or "ADM")
-        await update.message.reply_text(
-            f"{E_CHECK} <b>Aap pehle se registered hain, {name}!</b>\n\n"
-            f"You are already registered. No need to register again.\n"
-            f"Use /help to see available commands.",
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(),
-        )
-        # Clean up any partial registration data
-        for key in list(context.user_data.keys()):
-            if key.startswith("reg_"):
-                del context.user_data[key]
-        return True
-    return False
-
 
 async def enter_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the ADM's full name."""
-    # Guard: if user is already registered, don't capture their text
+    # GUARD 1: Check if registration was actually initiated via /start
+    if not _is_registration_active(context):
+        return await _reject_stray_text(update, context)
+
+    # GUARD 2: Check if user is already registered (DB might have been seeded)
     if await _abort_if_already_registered(update, context):
         return ConversationHandler.END
 
@@ -140,7 +200,8 @@ async def enter_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def enter_employee_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the Employee ID."""
-    # Guard: if user is already registered, don't capture their text
+    if not _is_registration_active(context):
+        return await _reject_stray_text(update, context)
     if await _abort_if_already_registered(update, context):
         return ConversationHandler.END
 
@@ -166,7 +227,8 @@ async def enter_employee_id(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def enter_region(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the region."""
-    # Guard: if user is already registered, don't capture their text
+    if not _is_registration_active(context):
+        return await _reject_stray_text(update, context)
     if await _abort_if_already_registered(update, context):
         return ConversationHandler.END
 
@@ -208,7 +270,7 @@ async def confirm_registration(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Use /start to try again.",
             parse_mode="HTML",
         )
-        context.user_data.clear()
+        _cleanup_reg_data(context)
         return ConversationHandler.END
 
     # confirm_yes - register with backend
@@ -236,10 +298,7 @@ async def confirm_registration(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
     # Clean up
-    for key in list(context.user_data.keys()):
-        if key.startswith("reg_"):
-            del context.user_data[key]
-
+    _cleanup_reg_data(context)
     return ConversationHandler.END
 
 
@@ -256,12 +315,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"{E_CROSS} Registration cancelled. Use /start to try again.",
             parse_mode="HTML",
         )
-    else:
+    elif update.message:
         await update.message.reply_text(
             f"{E_CROSS} Registration cancelled. Use /start to try again.",
             parse_mode="HTML",
         )
-    context.user_data.clear()
+    _cleanup_reg_data(context)
     return ConversationHandler.END
 
 
@@ -291,10 +350,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def build_start_handler() -> ConversationHandler:
     """Build the /start registration conversation handler.
 
-    allow_reentry=True so users can restart with /start if stuck.
-    This is critical because if the API is down during /start, the user
-    could get trapped in registration flow even though they're already
-    registered.
+    SAFETY ARCHITECTURE:
+    1. Entry point: ONLY /start command
+    2. Every text handler checks context.user_data["reg_active"] flag
+    3. The "reg_active" flag is ONLY set in start_command() after 404 from API
+    4. If flag is missing → text is rejected with "Session expired" message
+    5. conversation_timeout=300 auto-expires after 5 min of inactivity
     """
     _cancel_cb = lambda: CallbackQueryHandler(cancel, pattern=r"^cancel$")
 
@@ -317,7 +378,6 @@ def build_start_handler() -> ConversationHandler:
                 CallbackQueryHandler(confirm_registration, pattern=r"^confirm_"),
                 _cancel_cb(),
             ],
-            # Timeout handler — auto-cancel after 5 minutes of inactivity
             ConversationHandler.TIMEOUT: [
                 MessageHandler(filters.ALL, cancel),
             ],
@@ -330,5 +390,5 @@ def build_start_handler() -> ConversationHandler:
         name="registration",
         persistent=False,
         allow_reentry=True,
-        conversation_timeout=300,  # 5 minutes — auto-expire stale registrations
+        conversation_timeout=300,
     )

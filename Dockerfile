@@ -20,7 +20,7 @@ COPY bot/ ./bot/
 COPY start.py .
 
 # Force Railway to never use stale image — version tag changes on every meaningful deploy
-LABEL app.version="2.5.0-2026-02-23" \
+LABEL app.version="2.6.0-2026-02-23" \
       app.description="ADM Platform - no demo data"
 
 # Delete any stale .db files that might have leaked into the image

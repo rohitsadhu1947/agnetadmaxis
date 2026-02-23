@@ -205,6 +205,10 @@ async def select_agent_for_cases(update: Update, context: ContextTypes.DEFAULT_T
 
 async def search_agent_for_cases(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle text search for agents in /cases."""
+    if "cases" not in context.user_data:
+        await update.message.reply_text(f"{E_WARNING} Session expired. Use /cases to start again.", parse_mode="HTML")
+        return ConversationHandler.END
+
     search_text = update.message.text.strip().lower()
     agents = context.user_data.get("cases", {}).get("agents_cache", [])
 

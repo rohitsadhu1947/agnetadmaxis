@@ -243,7 +243,7 @@ async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     import datetime
     text = (
         f"{E_GEAR} <b>ADM Bot Version</b>\n\n"
-        f"Version: <code>2.5.0-2026-02-23</code>\n"
+        f"Version: <code>2.6.0-2026-02-23</code>\n"
         f"Server time: <code>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
         f"API: <code>{config.API_BASE_URL}</code>\n"
         f"API healthy: <code>{api_client.is_healthy}</code>"
@@ -368,7 +368,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    BOT_VERSION = "2.5.0-2026-02-23"
+    BOT_VERSION = "2.6.0-2026-02-23"
     logger.info("Starting ADM Platform Telegram Bot v%s", BOT_VERSION)
     logger.info("API Base URL: %s", config.API_BASE_URL)
 
@@ -383,19 +383,22 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # Register conversation handlers (order matters - first match wins)
+    #
+    # CRITICAL: /start is registered LAST among ConversationHandlers.
+    # This ensures /log, /feedback, /cases etc. get first priority for
+    # text messages. The /start handler has TEXT filters in its states
+    # (for name, employee_id, region input), so if registered first,
+    # it could capture text meant for other handlers after a bot restart.
     # ------------------------------------------------------------------
-
-    # /start - registration flow (ConversationHandler)
-    application.add_handler(build_start_handler())
 
     # /feedback - multi-step feedback capture (ConversationHandler)
     application.add_handler(build_feedback_handler())
 
-    # /diary (/schedule) - diary management (ConversationHandler)
-    application.add_handler(build_diary_handler())
-
     # /log - interaction logging (ConversationHandler)
     application.add_handler(build_interaction_handler())
+
+    # /diary (/schedule) - diary management (ConversationHandler)
+    application.add_handler(build_diary_handler())
 
     # /train - product training + quiz (ConversationHandler)
     application.add_handler(build_training_handler())
@@ -405,6 +408,9 @@ def main() -> None:
 
     # /cases - case history per agent (ConversationHandler)
     application.add_handler(build_cases_handler())
+
+    # /start - registration flow (LAST — so other handlers get priority)
+    application.add_handler(build_start_handler())
 
     # ------------------------------------------------------------------
     # Register simple command handlers

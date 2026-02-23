@@ -214,6 +214,14 @@ async def select_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def search_agent_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle free-text search for agents in the /log flow."""
+    # Guard: if ilog data is missing (bot restarted), bail out
+    if "ilog" not in context.user_data:
+        await update.message.reply_text(
+            f"{E_WARNING} Session expired. Please start again with /log",
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
     search_text = update.message.text.strip()
     telegram_id = update.effective_user.id
 
@@ -399,6 +407,9 @@ async def notes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def receive_notes_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if "ilog" not in context.user_data:
+        await update.message.reply_text(f"{E_WARNING} Session expired. Please start again with /log", parse_mode="HTML")
+        return ConversationHandler.END
     context.user_data["ilog"]["notes"] = update.message.text.strip()
     summary = format_interaction_summary(context.user_data["ilog"])
     await update.message.reply_text(summary, parse_mode="HTML", reply_markup=confirm_keyboard())
@@ -677,6 +688,9 @@ async def fb_notes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def fb_receive_notes_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive free text notes for feedback sub-flow."""
+    if "ilog" not in context.user_data:
+        await update.message.reply_text(f"{E_WARNING} Session expired. Please start again with /log", parse_mode="HTML")
+        return ConversationHandler.END
     context.user_data["ilog"]["fb_free_text"] = update.message.text.strip()
     return await _fb_show_confirmation_msg(update, context)
 
