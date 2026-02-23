@@ -45,11 +45,25 @@ def _needs_db_reset(db) -> bool:
         return True
 
     # Detect stale demo ADMs by name fragments
-    stale_names = ["Suresh", "Amitava", "Rajiv", "Priyanka", "Meenakshi"]
+    # Set 1: Original prototype ADMs (Feb 17 initial build)
+    # Set 2: Demo agents from hardcoded agent list (AGT001-AGT008)
+    stale_names = [
+        "Suresh", "Amitava", "Rajiv", "Priyanka", "Meenakshi",  # Old demo ADMs
+        "Priya Sharma", "Kavita Singh", "Deepak Gupta", "Anjali Reddy",  # Demo agents
+        "Neeta Desai", "Rajesh Verma",  # More demo agents
+    ]
     try:
         for name_frag in stale_names:
             if db.query(ADM).filter(ADM.name.contains(name_frag)).first():
-                logger.warning(f"Stale demo ADM detected: '{name_frag}*'. DB needs reset.")
+                logger.warning(f"Stale demo data detected: '{name_frag}*'. DB needs reset.")
+                return True
+        # Also check Agent table for demo agents by name
+        from models import Agent
+        demo_agent_names = ["Suresh Patel", "Priya Sharma", "Amit Kumar", "Neeta Desai",
+                           "Rajesh Verma", "Kavita Singh", "Deepak Gupta", "Anjali Reddy"]
+        for name in demo_agent_names:
+            if db.query(Agent).filter(Agent.name == name).first():
+                logger.warning(f"Stale demo agent detected: '{name}'. DB needs reset.")
                 return True
     except Exception:
         pass  # Table might not exist yet — that's fine

@@ -1,6 +1,9 @@
 [build]
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
+# CRITICAL: Disable Docker layer caching to prevent stale code from being served
+# Railway was serving old cached images with deleted demo data
+noCache = true
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
