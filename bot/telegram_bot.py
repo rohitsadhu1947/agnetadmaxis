@@ -243,7 +243,7 @@ async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     import datetime
     text = (
         f"{E_GEAR} <b>ADM Bot Version</b>\n\n"
-        f"Version: <code>2.4.0-2026-02-23</code>\n"
+        f"Version: <code>2.5.0-2026-02-23</code>\n"
         f"Server time: <code>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
         f"API: <code>{config.API_BASE_URL}</code>\n"
         f"API healthy: <code>{api_client.is_healthy}</code>"
@@ -368,7 +368,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    BOT_VERSION = "2.4.0-2026-02-23"
+    BOT_VERSION = "2.5.0-2026-02-23"
     logger.info("Starting ADM Platform Telegram Bot v%s", BOT_VERSION)
     logger.info("API Base URL: %s", config.API_BASE_URL)
 
@@ -451,21 +451,39 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(view_case_from_notification, pattern=r"^view_case:"))
 
     # ------------------------------------------------------------------
-    # Catch-all handler for debugging (logs any unhandled message)
+    # Catch-all handler — give user a helpful nudge instead of silence
+    # This fires when no ConversationHandler or command matched the message,
+    # which typically happens after a bot restart wipes in-memory state.
     # ------------------------------------------------------------------
     from telegram.ext import MessageHandler, filters as tg_filters
 
-    async def debug_catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log any message that reaches the catch-all (means no handler matched)."""
+    async def unhandled_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle stray text that no ConversationHandler claimed.
+        This typically happens after bot restart — the user was mid-flow
+        but the bot lost all conversation state.
+        """
+        if not update.message or not update.message.text:
+            return  # Ignore non-text (photos, stickers, etc.)
         logger.warning(
-            "CATCH-ALL: Unhandled update from user %s: %s",
+            "CATCH-ALL: Unhandled text from user %s: %s",
             update.effective_user.id if update.effective_user else "unknown",
-            update.message.text if update.message else str(update),
+            update.message.text[:100],
+        )
+        await update.message.reply_text(
+            f"{E_WARNING} <b>Bot was restarted</b>\n\n"
+            f"Your previous flow was interrupted.\n"
+            f"Bot restart hua hai, pichla flow reset ho gaya.\n\n"
+            f"Please use a command to start again:\n"
+            f"/log — Log an interaction\n"
+            f"/feedback — Capture feedback\n"
+            f"/cases — View case history\n"
+            f"/help — See all commands",
+            parse_mode="HTML",
         )
 
     application.add_handler(
-        MessageHandler(tg_filters.ALL, debug_catch_all),
-        group=99,  # low priority group
+        MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, unhandled_text),
+        group=99,  # low priority group — only fires if nothing else matched
     )
 
     # ------------------------------------------------------------------

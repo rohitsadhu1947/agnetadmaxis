@@ -115,11 +115,12 @@ class DiaryStates:
 
 
 # Registration states
+# NOTE: Must NOT overlap with CaseStates (40-43) — was 40-43, now 60-63
 class RegistrationStates:
-    ENTER_NAME = 40
-    ENTER_EMPLOYEE_ID = 41
-    ENTER_REGION = 42
-    CONFIRM_REGISTRATION = 43
+    ENTER_NAME = 60
+    ENTER_EMPLOYEE_ID = 61
+    ENTER_REGION = 62
+    CONFIRM_REGISTRATION = 63
 
 
 # Product Q&A states

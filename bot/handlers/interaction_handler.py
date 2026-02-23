@@ -978,4 +978,5 @@ def build_interaction_handler() -> ConversationHandler:
         name="interaction_log",
         persistent=False,
         allow_reentry=True,
+        conversation_timeout=600,  # 10 min — auto-expire stale flows after bot restart
     )

@@ -760,4 +760,5 @@ def build_cases_handler() -> ConversationHandler:
         name="case_history",
         persistent=False,
         allow_reentry=True,
+        conversation_timeout=600,  # 10 min — auto-expire stale flows after bot restart
     )

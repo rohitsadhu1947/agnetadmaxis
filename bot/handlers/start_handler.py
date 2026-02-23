@@ -91,8 +91,33 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # Registration steps
 # ---------------------------------------------------------------------------
 
+async def _abort_if_already_registered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if user is already registered. If so, abort registration and return True."""
+    telegram_id = update.effective_user.id
+    profile = await api_client.get_adm_profile(telegram_id)
+    if profile and not profile.get("error"):
+        name = profile.get("name", update.effective_user.first_name or "ADM")
+        await update.message.reply_text(
+            f"{E_CHECK} <b>Aap pehle se registered hain, {name}!</b>\n\n"
+            f"You are already registered. No need to register again.\n"
+            f"Use /help to see available commands.",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(),
+        )
+        # Clean up any partial registration data
+        for key in list(context.user_data.keys()):
+            if key.startswith("reg_"):
+                del context.user_data[key]
+        return True
+    return False
+
+
 async def enter_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the ADM's full name."""
+    # Guard: if user is already registered, don't capture their text
+    if await _abort_if_already_registered(update, context):
+        return ConversationHandler.END
+
     name = update.message.text.strip()
 
     if len(name) < 2 or len(name) > 100:
@@ -115,6 +140,10 @@ async def enter_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def enter_employee_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the Employee ID."""
+    # Guard: if user is already registered, don't capture their text
+    if await _abort_if_already_registered(update, context):
+        return ConversationHandler.END
+
     emp_id = update.message.text.strip().upper()
 
     if len(emp_id) < 3 or len(emp_id) > 20:
@@ -137,6 +166,10 @@ async def enter_employee_id(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def enter_region(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the region."""
+    # Guard: if user is already registered, don't capture their text
+    if await _abort_if_already_registered(update, context):
+        return ConversationHandler.END
+
     region = update.message.text.strip().title()
 
     if len(region) < 2:
@@ -284,6 +317,10 @@ def build_start_handler() -> ConversationHandler:
                 CallbackQueryHandler(confirm_registration, pattern=r"^confirm_"),
                 _cancel_cb(),
             ],
+            # Timeout handler — auto-cancel after 5 minutes of inactivity
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, cancel),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
@@ -293,4 +330,5 @@ def build_start_handler() -> ConversationHandler:
         name="registration",
         persistent=False,
         allow_reentry=True,
+        conversation_timeout=300,  # 5 minutes — auto-expire stale registrations
     )

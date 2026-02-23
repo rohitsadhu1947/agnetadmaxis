@@ -738,4 +738,5 @@ def build_feedback_handler() -> ConversationHandler:
         name="feedback",
         persistent=False,
         allow_reentry=True,
+        conversation_timeout=600,  # 10 min — auto-expire stale flows after bot restart
     )
