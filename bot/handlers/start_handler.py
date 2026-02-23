@@ -61,6 +61,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await send_voice_response(sent_msg, welcome_text)
         return ConversationHandler.END
 
+    # API error (e.g., backend restarting / connection error) — don't start
+    # registration for what might be an existing user. Only proceed to
+    # registration if the API explicitly returned 404 (user not found).
+    if profile and profile.get("error"):
+        status = profile.get("status", 0)
+        if status != 404:
+            # Server error or connection error — ask to retry
+            await update.message.reply_text(
+                f"\u26A0\uFE0F <b>Service temporarily unavailable</b>\n\n"
+                f"Could not check your registration. Please try /start again in a few seconds.\n"
+                f"Server se connect nahi ho paya. Kuch second baad /start karein.",
+                parse_mode="HTML",
+            )
+            return ConversationHandler.END
+        # status == 404 means genuinely not registered — fall through to registration
+
     # New user - start registration
     welcome_text = welcome_message()
     sent_msg = await update.message.reply_text(
@@ -240,27 +256,41 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # ---------------------------------------------------------------------------
 
 def build_start_handler() -> ConversationHandler:
-    """Build the /start registration conversation handler."""
+    """Build the /start registration conversation handler.
+
+    allow_reentry=True so users can restart with /start if stuck.
+    This is critical because if the API is down during /start, the user
+    could get trapped in registration flow even though they're already
+    registered.
+    """
+    _cancel_cb = lambda: CallbackQueryHandler(cancel, pattern=r"^cancel$")
+
     return ConversationHandler(
         entry_points=[CommandHandler("start", start_command)],
         states={
             RegistrationStates.ENTER_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_name),
+                _cancel_cb(),
             ],
             RegistrationStates.ENTER_EMPLOYEE_ID: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_employee_id),
+                _cancel_cb(),
             ],
             RegistrationStates.ENTER_REGION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_region),
+                _cancel_cb(),
             ],
             RegistrationStates.CONFIRM_REGISTRATION: [
                 CallbackQueryHandler(confirm_registration, pattern=r"^confirm_"),
+                _cancel_cb(),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(cancel, pattern=r"^cancel$"),
+            CommandHandler("start", start_command),  # Allow re-entry
+            _cancel_cb(),
         ],
         name="registration",
         persistent=False,
+        allow_reentry=True,
     )

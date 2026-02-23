@@ -507,6 +507,13 @@ async def receive_reply_voice(update: Update, context: ContextTypes.DEFAULT_TYPE
     ticket_id = cases_data.get("current_ticket_id")
     adm_name = cases_data.get("adm_name", "ADM")
 
+    if not ticket_id:
+        await update.message.reply_text(
+            f"{E_WARNING} Session expired. Use /cases to start again.",
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
     try:
         voice = update.message.voice
         if not voice or not voice.file_id:
@@ -553,6 +560,13 @@ async def receive_reply_photo(update: Update, context: ContextTypes.DEFAULT_TYPE
     cases_data = context.user_data.get("cases", {})
     ticket_id = cases_data.get("current_ticket_id")
     adm_name = cases_data.get("adm_name", "ADM")
+
+    if not ticket_id:
+        await update.message.reply_text(
+            f"{E_WARNING} Session expired. Use /cases to start again.",
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
 
     try:
         photo = update.message.photo[-1] if update.message.photo else None
@@ -611,6 +625,13 @@ async def receive_reply_document(update: Update, context: ContextTypes.DEFAULT_T
     cases_data = context.user_data.get("cases", {})
     ticket_id = cases_data.get("current_ticket_id")
     adm_name = cases_data.get("adm_name", "ADM")
+
+    if not ticket_id:
+        await update.message.reply_text(
+            f"{E_WARNING} Session expired. Use /cases to start again.",
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
 
     try:
         doc = update.message.document
