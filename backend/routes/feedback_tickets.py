@@ -107,18 +107,32 @@ def _generate_ticket_id(db: Session) -> str:
     return f"{prefix}{next_num:05d}"
 
 
+def _reason_name(db: Session, code: str) -> str:
+    """Look up human-readable reason name for a code. Returns the code itself as fallback."""
+    try:
+        r = db.query(ReasonTaxonomy).filter(ReasonTaxonomy.code == code).first()
+        return r.reason_name if r else code
+    except Exception:
+        return code
+
+
 def _enrich_ticket(ticket: FeedbackTicket, db: Session) -> dict:
     """Add display names and computed fields to a ticket."""
     agent = db.query(Agent).filter(Agent.id == ticket.agent_id).first()
     adm = db.query(ADM).filter(ADM.id == ticket.adm_id).first()
 
+    # Build a lookup of all reason codes → display names (single query)
+    _reason_lookup: dict = {}
+    try:
+        all_reasons = db.query(ReasonTaxonomy).all()
+        _reason_lookup = {r.code: r.reason_name for r in all_reasons}
+    except Exception:
+        pass  # Table may not exist yet
+
     # Reason display name
     reason_display = None
     if ticket.reason_code:
-        reason = db.query(ReasonTaxonomy).filter(
-            ReasonTaxonomy.code == ticket.reason_code
-        ).first()
-        reason_display = reason.reason_name if reason else ticket.reason_code
+        reason_display = _reason_lookup.get(ticket.reason_code, ticket.reason_code)
 
     # SLA status
     sla_status = "on_track"
@@ -139,12 +153,18 @@ def _enrich_ticket(ticket: FeedbackTicket, db: Session) -> dict:
         "adm_id": ticket.adm_id,
         "interaction_id": ticket.interaction_id,
         "channel": ticket.channel,
-        "selected_reasons": json.loads(ticket.selected_reasons) if ticket.selected_reasons else [],
+        "selected_reasons": [
+            {"code": c, "name": _reason_lookup.get(c, c)}
+            for c in (json.loads(ticket.selected_reasons) if ticket.selected_reasons else [])
+        ],
         "raw_feedback_text": ticket.raw_feedback_text,
         "parsed_summary": ticket.parsed_summary,
         "bucket": ticket.bucket,
         "reason_code": ticket.reason_code,
-        "secondary_reason_codes": json.loads(ticket.secondary_reason_codes) if ticket.secondary_reason_codes else [],
+        "secondary_reason_codes": [
+            {"code": c, "name": _reason_lookup.get(c, c)}
+            for c in (json.loads(ticket.secondary_reason_codes) if ticket.secondary_reason_codes else [])
+        ],
         "ai_confidence": ticket.ai_confidence,
         "priority": ticket.priority,
         "urgency_score": ticket.urgency_score,
@@ -619,7 +639,10 @@ def ticket_analytics(
         "by_status": by_status,
         "sla_compliance_pct": sla_compliance,
         "avg_resolution_hours": avg_hours,
-        "top_reason_codes": [{"code": code, "count": cnt} for code, cnt in top_reasons],
+        "top_reason_codes": [
+            {"code": code, "name": _reason_name(db, code), "count": cnt}
+            for code, cnt in top_reasons
+        ],
     }
 
 
@@ -636,7 +659,16 @@ def list_alerts(
     query = db.query(AggregationAlert)
     if status:
         query = query.filter(AggregationAlert.status == status)
-    return query.order_by(desc(AggregationAlert.created_at)).limit(50).all()
+    alerts = query.order_by(desc(AggregationAlert.created_at)).limit(50).all()
+
+    # Enrich with reason display names
+    enriched = []
+    for a in alerts:
+        d = {c.name: getattr(a, c.name) for c in a.__table__.columns}
+        if a.reason_code:
+            d["reason_name"] = _reason_name(db, a.reason_code)
+        enriched.append(d)
+    return enriched
 
 
 # ---------------------------------------------------------------------------

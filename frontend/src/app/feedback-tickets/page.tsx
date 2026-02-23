@@ -393,7 +393,7 @@ function TicketCard({ ticket, expanded, onToggle, refetch }: {
         <div className="border-t border-surface-border/50 p-4 space-y-4 bg-surface-card/30">
           {/* Detail Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <DetailItem label="Reason Code" value={ticket.reason_code || '—'} />
+            <DetailItem label="Reason" value={ticket.reason_display || ticket.reason_code || '—'} />
             <DetailItem label="Confidence" value={ticket.ai_confidence ? `${(ticket.ai_confidence * 100).toFixed(0)}%` : '—'} />
             <DetailItem label="Churn Risk" value={ticket.churn_risk || '—'} />
             <DetailItem label="Sentiment" value={ticket.sentiment || '—'} />
@@ -408,9 +408,9 @@ function TicketCard({ ticket, expanded, onToggle, refetch }: {
             <div>
               <p className="text-[11px] text-gray-500 mb-1 flex items-center gap-1"><Tags className="w-3 h-3" /> ADM Selected Reasons</p>
               <div className="flex flex-wrap gap-1">
-                {ticket.selected_reasons.map((code: string) => (
-                  <span key={code} className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-red/10 border border-brand-red/20 text-brand-red">
-                    {code}
+                {ticket.selected_reasons.map((r: any) => (
+                  <span key={r.code || r} className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-red/10 border border-brand-red/20 text-brand-red" title={r.code || r}>
+                    {r.name || r}
                   </span>
                 ))}
               </div>
@@ -422,9 +422,9 @@ function TicketCard({ ticket, expanded, onToggle, refetch }: {
             <div>
               <p className="text-[11px] text-gray-500 mb-1">Secondary Reasons</p>
               <div className="flex flex-wrap gap-1">
-                {ticket.secondary_reason_codes.map((code: string) => (
-                  <span key={code} className="px-2 py-0.5 rounded text-[10px] bg-surface-card border border-surface-border text-gray-300">
-                    {code}
+                {ticket.secondary_reason_codes.map((r: any) => (
+                  <span key={r.code || r} className="px-2 py-0.5 rounded text-[10px] bg-surface-card border border-surface-border text-gray-300" title={r.code || r}>
+                    {r.name || r}
                   </span>
                 ))}
               </div>
@@ -999,7 +999,7 @@ function DepartmentView({ refetch }: { refetch: () => void }) {
                 </div>
                 <p className="text-sm text-gray-300 mb-1">{ticket.parsed_summary || ticket.raw_feedback_text || 'No summary'}</p>
                 <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                  <span>Reason: {ticket.reason_code}</span>
+                  <span>Reason: {ticket.reason_display || ticket.reason_code}</span>
                   <span className="text-gray-700">|</span>
                   <span>{ticket.agent_name || `Agent #${ticket.agent_id}`}</span>
                   <span className="text-gray-700">|</span>
@@ -1050,9 +1050,10 @@ function AnalyticsTab({ analytics, loading, tickets }: { analytics: any; loading
       }))
     : [];
 
-  // Backend returns top_reason_codes: [{ code, count }] — map to expected format
+  // Backend returns top_reason_codes: [{ code, name, count }] — map to expected format
   const topReasons = (analytics.top_reason_codes || analytics.top_reasons || []).map((item: any) => ({
     reason_code: item.reason_code || item.code || item.reason,
+    reason_name: item.name || item.reason_name || item.reason_code || item.code || item.reason,
     count: item.count || 0,
   }));
   const slaCompliance = analytics.sla_compliance_pct ?? analytics.sla_compliance ?? 0;
@@ -1145,7 +1146,7 @@ function AnalyticsTab({ analytics, loading, tickets }: { analytics: any; loading
         </ChartCard>
 
         {/* Top Reasons */}
-        <ChartCard title="Top Reason Codes" subtitle="Most frequent feedback reasons">
+        <ChartCard title="Top Reasons" subtitle="Most frequent feedback reasons">
           <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
             {topReasons.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">No data yet</p>
@@ -1153,8 +1154,8 @@ function AnalyticsTab({ analytics, loading, tickets }: { analytics: any; loading
               topReasons.map((item: any, i: number) => (
                 <div key={item.reason_code || i} className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 w-5 text-right">{i + 1}</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-card border border-surface-border text-gray-300 min-w-[60px] text-center">
-                    {item.reason_code}
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-surface-card border border-surface-border text-gray-300 text-center truncate max-w-[180px]" title={`${item.reason_code}: ${item.reason_name}`}>
+                    {item.reason_name}
                   </span>
                   <div className="flex-1">
                     <div className="h-2 bg-surface-card rounded-full overflow-hidden">
@@ -1217,7 +1218,7 @@ function AlertsTab({ alerts }: { alerts: any[] }) {
                     {alert.reason_code && (
                       <>
                         <span className="text-gray-700">|</span>
-                        <span className="text-[11px] text-gray-400 font-mono">{alert.reason_code}</span>
+                        <span className="text-[11px] text-gray-400">{alert.reason_name || alert.reason_code}</span>
                       </>
                     )}
                     {alert.region && (
