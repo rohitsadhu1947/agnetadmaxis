@@ -21,8 +21,8 @@ COPY bot/ ./bot/
 COPY start.py .
 
 # Force Railway to never use stale image — version tag changes on every meaningful deploy
-LABEL app.version="2.7.1-stable-2026-02-24" \
-      app.description="ADM Platform - Neon PostgreSQL + graceful shutdown"
+LABEL app.version="2.7.2-force-rebuild-2026-02-24" \
+      app.description="ADM Platform - Neon PostgreSQL + forced clean rebuild"
 
 # Delete any stale .db / __pycache__ that might have leaked into the image
 RUN find /app -name "*.db" -delete 2>/dev/null; \

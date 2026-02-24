@@ -199,7 +199,7 @@ def main():
     port = int(os.environ.get("PORT", 8000))
 
     logger.info("=" * 60)
-    logger.info("  ADM Platform Launcher v2.7.1")
+    logger.info("  ADM Platform Launcher v2.7.2")
     logger.info("  Port: %d", port)
     logger.info("=" * 60)
 

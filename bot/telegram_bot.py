@@ -334,6 +334,22 @@ async def post_init(application: Application) -> None:
     except Exception as exc:
         logger.warning("Could not delete webhook: %s", exc)
 
+    # Diagnostic: verify backend connectivity and database type at startup
+    import httpx
+    try:
+        health_url = config.API_BASE_URL.replace("/api/v1", "").rstrip("/") + "/health"
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(health_url)
+            health = resp.json()
+            logger.info("=== BACKEND HEALTH CHECK ===")
+            logger.info("  Database backend: %s", health.get("database_backend", "unknown"))
+            logger.info("  Agent count: %s", health.get("agent_count", "unknown"))
+            logger.info("  Database status: %s", health.get("database", "unknown"))
+            logger.info("  AI enabled: %s", health.get("ai_enabled", "unknown"))
+            logger.info("============================")
+    except Exception as e:
+        logger.warning("Could not verify backend health at startup: %s", e)
+
     commands = [
         BotCommand("start", "Register / Restart"),
         BotCommand("briefing", "Morning briefing / Subah ki report"),
@@ -381,7 +397,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    BOT_VERSION = "2.7.1-stable-2026-02-24"
+    BOT_VERSION = "2.7.2-force-rebuild-2026-02-24"
     logger.info("Starting ADM Platform Telegram Bot v%s", BOT_VERSION)
     logger.info("API Base URL: %s", config.API_BASE_URL)
 

@@ -14,7 +14,7 @@ from typing import Optional
 class Settings(BaseSettings):
     # Application
     APP_NAME: str = "ADM Platform - Axis Max Life Insurance"
-    APP_VERSION: str = "2.7.0"
+    APP_VERSION: str = "2.7.2"
     DEBUG: bool = True
 
     # Database — default is SQLite for local dev; Railway overrides via env var
