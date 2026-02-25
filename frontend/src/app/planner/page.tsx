@@ -36,6 +36,7 @@ const ENTRY_TYPE_CONFIG: Record<string, { label: string; color: string; bgColor:
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pending: { label: 'Pending', className: 'bg-amber-500/10 text-amber-400 border border-amber-500/20' },
+  scheduled: { label: 'Scheduled', className: 'bg-amber-500/10 text-amber-400 border border-amber-500/20' },
   completed: { label: 'Completed', className: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' },
   overdue: { label: 'Overdue', className: 'bg-red-500/10 text-red-400 border border-red-500/20' },
   rescheduled: { label: 'Rescheduled', className: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
@@ -84,9 +85,12 @@ export default function PlannerPage() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  // Fetch diary entries for today
+  // Fetch diary entries for selected date
+  const selectedDateISO = formatDateISO(selectedDate);
   const { data: todayEntries, loading: loadingToday, refetch: refetchToday } = useAPI(
-    () => admId ? api.getDiaryToday(admId) : Promise.resolve([]),
+    () => admId ? api.getDiaryToday(admId, selectedDateISO) : Promise.resolve([]),
+    undefined,
+    [selectedDateISO],
   );
 
   // Fetch upcoming entries
@@ -338,7 +342,7 @@ export default function PlannerPage() {
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Clock className="w-5 h-5 text-gray-400" />
-            Today&apos;s Timeline
+            {formatDateISO(selectedDate) === formatDateISO(new Date()) ? "Today\u2019s Timeline" : `Timeline \u2014 ${selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
           </h2>
 
           {loadingToday ? (
@@ -377,7 +381,7 @@ export default function PlannerPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`font-medium ${isCompleted ? 'text-gray-500 line-through' : 'text-white'}`}>
-                          {entry.agent_name || 'Agent'}
+                          {entry.agent_name || entry.notes || 'Diary Entry'}
                         </span>
                         {entry.agent_phone && (
                           <span className="flex items-center gap-1 text-xs text-gray-500">
@@ -394,7 +398,7 @@ export default function PlannerPage() {
                           {statusConfig.label}
                         </span>
                       </div>
-                      {entry.notes && (
+                      {entry.agent_name && entry.notes && (
                         <p className={`text-xs mt-2 ${isCompleted ? 'text-gray-600 line-through' : 'text-gray-400'}`}>
                           {entry.notes}
                         </p>
@@ -472,11 +476,12 @@ export default function PlannerPage() {
                       {entries.map((entry: any) => {
                         const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type] || ENTRY_TYPE_CONFIG.follow_up;
                         const TypeIcon = typeConfig.icon;
+                        const isEntryCompleted = entry.status === 'completed';
                         return (
-                          <div key={entry.id} className="flex items-center gap-2">
+                          <div key={entry.id} className={`flex items-center gap-2 ${isEntryCompleted ? 'opacity-50' : ''}`}>
                             <TypeIcon className={`w-3.5 h-3.5 ${typeConfig.color} flex-shrink-0`} />
-                            <span className="text-xs text-gray-300 truncate flex-1">
-                              {entry.agent_name || 'Agent'}
+                            <span className={`text-xs truncate flex-1 ${isEntryCompleted ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
+                              {entry.agent_name || entry.notes || 'Diary Entry'}
                             </span>
                             {entry.scheduled_time && (
                               <span className="text-[10px] text-gray-500 flex-shrink-0">

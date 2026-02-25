@@ -130,7 +130,10 @@ export const api = {
     fetchAPI<any>(`/training/categories/${category}/products`),
 
   // Diary
-  getDiaryToday: (admId: number) => fetchAPI<any>(`/diary/today/${admId}`),
+  getDiaryToday: (admId: number, date?: string) => {
+    const params = date ? `?date=${date}` : '';
+    return fetchAPI<any>(`/diary/today/${admId}${params}`);
+  },
   getDiaryUpcoming: (admId: number, days: number = 7) => fetchAPI<any>(`/diary/upcoming/${admId}?days=${days}`),
   createDiaryEntry: (data: any) => fetchAPI<any>('/diary/', { method: 'POST', body: JSON.stringify(data) }),
   completeDiaryEntry: (id: number, notes?: string) => {

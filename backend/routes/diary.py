@@ -49,16 +49,20 @@ def list_diary_entries(
 
 
 @router.get("/today/{adm_id}")
-def get_today_schedule(adm_id: int, db: Session = Depends(get_db)):
-    """Get today's schedule for an ADM."""
+def get_today_schedule(
+    adm_id: int,
+    date: Optional[date_type] = Query(None, description="Specific date to fetch (defaults to today)"),
+    db: Session = Depends(get_db),
+):
+    """Get schedule for an ADM on a specific date (defaults to today)."""
     adm = db.query(ADM).filter(ADM.id == adm_id).first()
     if not adm:
         raise HTTPException(status_code=404, detail="ADM not found")
 
-    today = date_type.today()
+    target_date = date or date_type.today()
     entries = db.query(DiaryEntry).filter(
         DiaryEntry.adm_id == adm_id,
-        DiaryEntry.scheduled_date == today,
+        DiaryEntry.scheduled_date == target_date,
     ).order_by(DiaryEntry.scheduled_time).all()
 
     schedule = []
@@ -85,7 +89,7 @@ def get_today_schedule(adm_id: int, db: Session = Depends(get_db)):
     return {
         "adm_id": adm_id,
         "adm_name": adm.name,
-        "date": today.isoformat(),
+        "date": target_date.isoformat(),
         "total_entries": len(schedule),
         "completed": sum(1 for s in schedule if s["status"] == "completed"),
         "pending": sum(1 for s in schedule if s["status"] == "scheduled"),
@@ -108,7 +112,6 @@ def get_upcoming_entries(
         DiaryEntry.adm_id == adm_id,
         DiaryEntry.scheduled_date >= today,
         DiaryEntry.scheduled_date <= end_date,
-        DiaryEntry.status.in_(["scheduled", "rescheduled"]),
     ).order_by(DiaryEntry.scheduled_date, DiaryEntry.scheduled_time).all()
 
     results = []
@@ -121,8 +124,9 @@ def get_upcoming_entries(
         results.append({
             "id": entry.id,
             "date": entry.scheduled_date.isoformat(),
-            "time": entry.scheduled_time,
+            "time": entry.scheduled_time or "",
             "type": entry.entry_type,
+            "status": entry.status,
             "agent_id": entry.agent_id,
             "agent_name": agent_name,
             "notes": entry.notes,
