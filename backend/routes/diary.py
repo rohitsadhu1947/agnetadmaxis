@@ -73,7 +73,7 @@ def get_today_schedule(adm_id: int, db: Session = Depends(get_db)):
 
         schedule.append({
             "id": entry.id,
-            "time": entry.scheduled_time or "Flexible",
+            "time": entry.scheduled_time or "",
             "type": entry.entry_type,
             "status": entry.status,
             "agent_id": entry.agent_id,
