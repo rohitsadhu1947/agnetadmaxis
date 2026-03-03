@@ -44,9 +44,13 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "adm-platform-secret-key-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
+    # Agent Telegram Bot (separate bot for agents)
+    AGENT_TELEGRAM_BOT_TOKEN: str = ""
+
     # Feature Flags
     ENABLE_AI_FEATURES: bool = True
     ENABLE_TELEGRAM_BOT: bool = False
+    ENABLE_AGENT_BOT: bool = False
     ENABLE_WHATSAPP: bool = False
 
     @property

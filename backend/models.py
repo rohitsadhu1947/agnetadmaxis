@@ -51,11 +51,60 @@ class Agent(Base):
     onboarding_started_at = Column(DateTime, nullable=True)
     onboarding_completed_at = Column(DateTime, nullable=True)
 
+    # ----- Cohort Analysis Fields -----
+
+    # Historical Performance
+    total_policies_sold = Column(Integer, default=0)
+    total_premium_generated = Column(Float, default=0.0)
+    policies_last_12_months = Column(Integer, default=0)
+    premium_last_12_months = Column(Float, default=0.0)
+    avg_ticket_size = Column(Float, default=0.0)
+    best_month_premium = Column(Float, default=0.0)
+    persistency_ratio = Column(Float, default=0.0)  # % policies renewed
+
+    # Activity & Recency
+    last_login_date = Column(Date, nullable=True)
+    last_training_date = Column(Date, nullable=True)
+    last_proposal_date = Column(Date, nullable=True)
+    days_since_last_activity = Column(Integer, default=0)
+
+    # Responsiveness
+    contact_attempts = Column(Integer, default=0)
+    contact_responses = Column(Integer, default=0)
+    response_rate = Column(Float, default=0.0)  # responses / attempts
+    avg_response_time_hours = Column(Float, nullable=True)
+    preferred_channel = Column(String(30), nullable=True)  # call | whatsapp | telegram
+
+    # Career & Demographics
+    age = Column(Integer, nullable=True)
+    education_level = Column(String(50), nullable=True)
+    years_in_insurance = Column(Float, default=0.0)
+    previous_insurer = Column(String(100), nullable=True)
+    is_poached = Column(Boolean, default=False)
+    work_type = Column(String(30), default="full_time")  # full_time | part_time | side_hustle
+    other_occupation = Column(String(200), nullable=True)
+
+    # Digital
+    has_app_installed = Column(Boolean, default=False)
+    digital_savviness_score = Column(Float, default=0.0)  # 0-10
+    last_app_login = Column(Date, nullable=True)
+
+    # Cohort Classification (computed by cohort_classifier)
+    cohort_segment = Column(String(50), nullable=True, index=True)
+    reactivation_score = Column(Float, default=0.0)  # 0-100
+    engagement_strategy = Column(String(30), nullable=True)  # direct_call | whatsapp | telegram | no_contact
+    churn_risk_level = Column(String(20), nullable=True)  # high | medium | low | lost
+
+    # Agent Telegram Bot
+    telegram_chat_id = Column(String(50), nullable=True)
+    telegram_registered = Column(Boolean, default=False)
+
     # Relationships
     assigned_adm = relationship("ADM", back_populates="agents")
     interactions = relationship("Interaction", back_populates="agent", cascade="all, delete-orphan")
     feedbacks = relationship("Feedback", back_populates="agent", cascade="all, delete-orphan")
     diary_entries = relationship("DiaryEntry", back_populates="agent")
+    agent_feedback_tickets = relationship("AgentFeedbackTicket", back_populates="agent")
 
 
 # ---------------------------------------------------------------------------
@@ -433,3 +482,112 @@ class Product(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Agent Feedback Ticket (agent-submitted, direct to department)
+# ---------------------------------------------------------------------------
+class AgentFeedbackTicket(Base):
+    __tablename__ = "agent_feedback_tickets"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    ticket_id = Column(String(20), nullable=False, unique=True, index=True)  # AFB-YYYY-NNNNN
+
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+    adm_id = Column(Integer, ForeignKey("adms.id"), nullable=True, index=True)  # auto-resolved from agent's ADM
+
+    channel = Column(String(20), nullable=False, default="telegram")  # telegram | whatsapp | web
+
+    # Feedback input
+    selected_reasons = Column(Text, nullable=True)  # JSON list of reason codes
+    raw_feedback_text = Column(Text, nullable=True)
+    parsed_summary = Column(Text, nullable=True)  # AI-generated summary
+
+    # AI classification (reuses FeedbackClassifier)
+    bucket = Column(String(30), nullable=False, index=True)
+    reason_code = Column(String(10), nullable=True, index=True)
+    secondary_reason_codes = Column(Text, nullable=True)  # JSON list
+    ai_confidence = Column(Float, nullable=True)
+
+    # Priority & risk
+    priority = Column(String(20), default="medium", index=True)
+    urgency_score = Column(Float, default=5.0)
+    churn_risk = Column(String(20), nullable=True)
+    sentiment = Column(String(30), nullable=True)
+
+    # SLA
+    sla_hours = Column(Integer, default=48)
+    sla_deadline = Column(DateTime, nullable=True)
+
+    # Status
+    status = Column(
+        String(30), default="received", index=True,
+    )  # received | classified | routed | pending_dept | responded | closed
+
+    # Department response
+    department_response_text = Column(Text, nullable=True)
+    department_responded_by = Column(String(200), nullable=True)
+    department_responded_at = Column(DateTime, nullable=True)
+
+    # ADM notification
+    adm_notified = Column(Boolean, default=False)
+    adm_notified_at = Column(DateTime, nullable=True)
+
+    # Voice note
+    voice_file_id = Column(String(200), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    agent = relationship("Agent", back_populates="agent_feedback_tickets")
+    adm = relationship("ADM")
+    queue_entry = relationship("AgentDepartmentQueue", back_populates="ticket", uselist=False)
+    messages = relationship("AgentTicketMessage", back_populates="ticket", order_by="AgentTicketMessage.created_at")
+
+
+# ---------------------------------------------------------------------------
+# Agent Ticket Message (conversation threading for agent tickets)
+# ---------------------------------------------------------------------------
+class AgentTicketMessage(Base):
+    __tablename__ = "agent_ticket_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    ticket_id = Column(Integer, ForeignKey("agent_feedback_tickets.id"), nullable=False, index=True)
+
+    sender_type = Column(String(20), nullable=False)  # "agent" | "department" | "system" | "ai"
+    sender_name = Column(String(200), nullable=True)
+    message_text = Column(Text, nullable=True)
+    voice_file_id = Column(String(200), nullable=True)
+
+    message_type = Column(String(30), default="text")
+    # "text" | "voice" | "photo" | "document" | "status_change"
+
+    metadata_json = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    ticket = relationship("AgentFeedbackTicket", back_populates="messages")
+
+
+# ---------------------------------------------------------------------------
+# Agent Department Queue (tracks agent ticket assignment in departments)
+# ---------------------------------------------------------------------------
+class AgentDepartmentQueue(Base):
+    __tablename__ = "agent_department_queue"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    department = Column(String(30), nullable=False, index=True)
+    ticket_id = Column(Integer, ForeignKey("agent_feedback_tickets.id"), nullable=False, index=True)
+    assigned_to = Column(String(200), nullable=True)
+    status = Column(String(30), default="open", index=True)  # open | in_progress | responded | escalated
+    sla_status = Column(String(20), default="on_track")
+    escalation_level = Column(Integer, default=0)
+
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    ticket = relationship("AgentFeedbackTicket", back_populates="queue_entry")

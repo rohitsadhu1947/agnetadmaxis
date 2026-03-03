@@ -40,15 +40,16 @@ def _signal_handler(signum, frame):
     sig_name = signal.Signals(signum).name
     logger.info("Received %s — shutting down bot subprocess...", sig_name)
 
-    if _bot_process and _bot_process.poll() is None:
-        logger.info("Killing bot subprocess (PID %d)...", _bot_process.pid)
-        _bot_process.terminate()
-        try:
-            _bot_process.wait(timeout=5)
-            logger.info("Bot subprocess terminated cleanly.")
-        except subprocess.TimeoutExpired:
-            logger.warning("Bot subprocess didn't terminate in 5s, force killing...")
-            _bot_process.kill()
+    for name, proc in [("ADM bot", _bot_process), ("Agent bot", _agent_bot_process)]:
+        if proc and proc.poll() is None:
+            logger.info("Killing %s subprocess (PID %d)...", name, proc.pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+                logger.info("%s terminated cleanly.", name)
+            except subprocess.TimeoutExpired:
+                logger.warning("%s didn't terminate in 5s, force killing...", name)
+                proc.kill()
 
     logger.info("Exiting launcher.")
     sys.exit(0)
@@ -78,13 +79,16 @@ def _wait_for_backend(port: int, timeout: int = 90) -> bool:
     return False
 
 
+_agent_bot_process = None
+
+
 def start_telegram_bot(port: int):
     """Start and monitor the Telegram bot subprocess with auto-restart."""
     global _bot_process
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
-        logger.info("TELEGRAM_BOT_TOKEN not set, skipping bot.")
+        logger.info("TELEGRAM_BOT_TOKEN not set, skipping ADM bot.")
         return
 
     bot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot")
@@ -195,6 +199,79 @@ def start_telegram_bot(port: int):
     thread.start()
 
 
+def start_agent_bot(port: int):
+    """Start and monitor the Agent Telegram bot subprocess."""
+    global _agent_bot_process
+
+    token = os.environ.get("AGENT_TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        logger.info("AGENT_TELEGRAM_BOT_TOKEN not set, skipping Agent bot.")
+        return
+
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    bot_env = {
+        **os.environ,
+        "API_BASE_URL": f"http://localhost:{port}/api/v1",
+        "PYTHONPATH": project_root,
+    }
+
+    def _monitor_agent_bot():
+        global _agent_bot_process
+
+        if not _wait_for_backend(port):
+            if _shutting_down:
+                return
+            logger.error("Backend not ready for agent bot. Starting anyway.")
+
+        max_restarts = 20
+        restart_count = 0
+        min_uptime_for_reset = 300
+        backoff_base = 5
+
+        while restart_count < max_restarts and not _shutting_down:
+            logger.info("Launching Agent bot subprocess (attempt %d/%d)...", restart_count + 1, max_restarts)
+            start_time = time.time()
+
+            try:
+                _agent_bot_process = subprocess.Popen(
+                    [sys.executable, os.path.join(project_root, "agent_bot", "telegram_bot.py")],
+                    env=bot_env,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                )
+                logger.info("Agent bot subprocess launched (PID %d).", _agent_bot_process.pid)
+
+                exit_code = _agent_bot_process.wait()
+                uptime = time.time() - start_time
+
+                if _shutting_down:
+                    return
+
+                logger.warning("Agent bot exited with code %d after %.0fs.", exit_code, uptime)
+
+                if uptime >= min_uptime_for_reset:
+                    restart_count = 0
+                else:
+                    restart_count += 1
+
+                backoff = min(backoff_base * (2 ** min(restart_count, 5)), 120)
+                logger.info("Restarting agent bot in %ds...", backoff)
+                for _ in range(backoff):
+                    if _shutting_down:
+                        return
+                    time.sleep(1)
+
+            except Exception as e:
+                if _shutting_down:
+                    return
+                logger.error("Error managing agent bot: %s", e)
+                restart_count += 1
+                time.sleep(10)
+
+    thread = threading.Thread(target=_monitor_agent_bot, daemon=True, name="agent-bot-monitor")
+    thread.start()
+
+
 def main():
     port = int(os.environ.get("PORT", 8000))
 
@@ -210,14 +287,19 @@ def main():
     os.chdir(backend_dir)
     sys.path.insert(0, backend_dir)
 
-    # Telegram bot is now running on Vercel (webhook mode).
-    # Do NOT start the polling bot here — it would delete the webhook
-    # and interfere with the Vercel deployment.
+    # ADM Telegram bot
     if os.environ.get("ENABLE_POLLING_BOT", "").lower() in ("true", "1", "yes"):
-        logger.info("ENABLE_POLLING_BOT=true — starting polling bot (legacy mode)")
+        logger.info("ENABLE_POLLING_BOT=true — starting ADM polling bot")
         start_telegram_bot(port)
     else:
-        logger.info("Telegram bot disabled on Railway (running on Vercel via webhook)")
+        logger.info("ADM Telegram bot disabled (running on Vercel via webhook)")
+
+    # Agent Telegram bot
+    if os.environ.get("ENABLE_AGENT_BOT", "").lower() in ("true", "1", "yes"):
+        logger.info("ENABLE_AGENT_BOT=true — starting Agent bot")
+        start_agent_bot(port)
+    else:
+        logger.info("Agent Telegram bot disabled (set ENABLE_AGENT_BOT=true to enable)")
 
     # Start uvicorn in the main thread (this blocks and serves requests)
     import uvicorn

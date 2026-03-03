@@ -20,6 +20,8 @@ import {
   Shuffle,
   UserCog,
   Ticket,
+  PieChart,
+  Send,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -35,6 +37,8 @@ const adminNavItems = [
   { href: '/products', label: 'Products', icon: Package },
   { href: '/assignment', label: 'Assignment', icon: Shuffle },
   { href: '/adm-onboarding', label: 'ADM Onboarding', icon: UserCog },
+  { href: '/cohort', label: 'Cohort Analysis', icon: PieChart },
+  { href: '/outreach', label: 'Agent Outreach', icon: Send },
 ];
 
 const admNavItems = [

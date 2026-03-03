@@ -1,0 +1,31 @@
+name,phone,location,state,language,lifecycle_state,dormancy_reason,dormancy_duration_days,total_policies_sold,total_premium_generated,policies_last_12_months,premium_last_12_months,avg_ticket_size,persistency_ratio,last_contact_date,last_policy_sold_date,last_login_date,last_training_date,contact_attempts,contact_responses,response_rate,age,education_level,years_in_insurance,work_type,has_app_installed,digital_savviness_score,previous_insurer,is_poached,best_month_premium
+Rajesh Sharma,9876543201,Mumbai,Maharashtra,Hindi,dormant,,120,25,1875000,4,300000,75000,0.82,2025-11-15,2025-11-01,2025-10-20,2025-09-15,8,6,,35,graduate,6,full_time,true,7,,,250000
+Priya Nair,9876543202,Chennai,Tamil Nadu,Tamil,dormant,,90,15,900000,2,120000,60000,0.71,2025-12-10,2025-12-01,2025-11-25,2025-10-01,5,4,,28,post_graduate,4,full_time,true,8,,,150000
+Amit Verma,9876543203,Lucknow,Uttar Pradesh,Hindi,dormant,,60,3,90000,1,30000,30000,0.55,2025-12-20,2026-01-01,2025-12-15,2025-11-01,10,3,,42,12th,8,full_time,true,5,,,45000
+Sunita Devi,9876543204,Patna,Bihar,Hindi,dormant,,150,8,320000,1,40000,40000,0.6,2025-10-01,2025-09-15,2025-08-20,2025-07-01,12,2,,38,graduate,5,full_time,false,4,,,80000
+Vikram Singh,9876543205,Jaipur,Rajasthan,Hindi,dormant,economic.low_commission,200,6,180000,0,0,30000,0.45,2025-08-10,2025-08-01,2025-07-15,,15,5,,33,graduate,4,full_time,true,6,,,50000
+Kavitha Reddy,9876543206,Hyderabad,Telangana,Telugu,dormant,economic.competitor_better_commission,180,12,720000,0,0,60000,0.68,2025-09-01,2025-08-15,2025-08-01,,6,3,,31,post_graduate,5,full_time,true,8,HDFC Life,true,120000
+Arun Kumar,9876543207,Bangalore,Karnataka,Kannada,dormant,personal.health_issue,100,18,1260000,3,210000,70000,0.75,2025-11-20,2025-11-01,2025-11-10,2025-10-01,4,3,,45,graduate,8,full_time,true,7,,,200000
+Meera Joshi,9876543208,Pune,Maharashtra,Marathi,dormant,personal.family_emergency,150,7,280000,0,0,40000,0.62,2025-10-05,2025-09-01,2025-09-15,,3,2,,29,graduate,3,full_time,true,6,,,60000
+Suresh Pillai,9876543209,Kochi,Kerala,Malayalam,dormant,operational.system_downtime,90,9,405000,1,45000,45000,0.7,2025-12-05,2025-12-01,2025-11-20,2025-09-01,7,5,,36,professional,5,full_time,true,6,,,80000
+Deepak Tiwari,9876543210,Indore,Madhya Pradesh,Hindi,dormant,operational.portal_issues,120,4,120000,0,0,30000,0.5,2025-11-01,2025-10-15,2025-10-01,,10,6,,27,diploma,2,full_time,true,5,,,40000
+Anjali Gupta,9876543211,Delhi,Delhi,Hindi,dormant,engagement_gap.adm_never_contacted,240,2,50000,0,0,25000,0.4,,,,,0,0,,30,graduate,2,full_time,false,5,,,30000
+Rakesh Yadav,9876543212,Gurgaon,Haryana,Hindi,dormant,engagement_gap.adm_no_followthrough,180,0,0,0,0,0,0,,,,2025-01-01,0,0,,26,12th,1.5,full_time,true,6,,,0
+Pooja Mehta,9876543213,Ahmedabad,Gujarat,Gujarati,dormant,,400,0,0,0,0,0,0,,,,2024-06-01,5,0,,40,graduate,3,full_time,false,4,,,0
+Mohammed Irfan,9876543214,Nagpur,Maharashtra,Hindi,dormant,,500,0,0,0,0,0,0,2024-09-01,,,2024-03-01,8,0,,52,12th,5,full_time,false,3,,,0
+Neha Kapoor,9876543215,Mumbai,Maharashtra,Hindi,dormant,,30,2,60000,2,60000,30000,0.8,2026-02-01,2026-01-15,2026-02-10,2026-01-01,3,2,,23,graduate,0.5,full_time,true,7,,,40000
+Ravi Shankar,9876543216,Bangalore,Karnataka,Kannada,dormant,,45,0,0,0,0,0,0,2026-01-20,,,2026-01-15,2,1,,24,graduate,0.8,full_time,true,8,,,0
+Sanjay Mishra,9876543217,Delhi,Delhi,Hindi,dormant,,20,0,0,0,0,0,0,2026-02-10,,,2026-01-20,4,1,,22,12th,0.3,full_time,true,6,,,0
+Lakshmi Iyer,9876543218,Coimbatore,Tamil Nadu,Tamil,dormant,,100,5,150000,1,30000,30000,0.55,2025-11-20,2025-11-01,2025-10-15,,6,3,,34,graduate,4,part_time,true,6,,,45000
+Gopal Das,9876543219,Jaipur,Rajasthan,Hindi,dormant,,130,3,75000,0,0,25000,0.5,2025-10-25,2025-10-01,2025-09-15,,8,3,,40,diploma,3,side_hustle,false,4,,,30000
+Ramesh Babu,9876543220,Dharwad,Karnataka,Kannada,dormant,,160,3,60000,0,0,20000,0.45,2025-09-20,2025-09-01,2025-08-10,,5,1,,55,10th,6,full_time,false,2,,,25000
+Sarita Kumari,9876543221,Ranchi,Jharkhand,Hindi,dormant,,200,1,15000,0,0,15000,0.3,2025-08-15,2025-08-01,2025-07-01,,4,0,,48,10th,4,full_time,false,1,,,15000
+Karthik Rajan,9876543222,Chennai,Tamil Nadu,Tamil,dormant,training_gap.product_knowledge,90,1,25000,0,0,25000,0.5,2025-12-01,2025-11-15,2025-11-01,,5,3,,27,graduate,2,full_time,true,7,,,25000
+Divya Sharma,9876543223,Mumbai,Maharashtra,Hindi,dormant,training_gap.sales_skills,110,2,50000,0,0,25000,0.55,2025-11-10,2025-10-20,2025-10-01,,6,4,,25,post_graduate,1.5,full_time,true,8,,,35000
+Mahesh Patel,9876543224,Surat,Gujarat,Gujarati,dormant,,120,4,200000,1,50000,50000,0.65,2025-11-01,2025-10-15,2025-10-01,,7,2,,37,graduate,4,full_time,true,5,,,70000
+Anita Rawat,9876543225,Dehradun,Uttarakhand,Hindi,dormant,,140,2,40000,0,0,20000,0.5,2025-10-15,2025-09-20,2025-09-01,,10,2,,32,diploma,3,full_time,false,4,,,25000
+Venkat Rao,9876543226,Visakhapatnam,Andhra Pradesh,Telugu,dormant,regulatory.license_expired,180,8,400000,0,0,50000,0.72,2025-09-01,2025-08-15,2025-08-01,,5,4,,41,professional,7,full_time,true,6,,,80000
+Shobha Nair,9876543227,Thiruvananthapuram,Kerala,Malayalam,dormant,regulatory.compliance_pending,150,5,200000,0,0,40000,0.6,2025-10-05,2025-09-01,2025-09-15,,4,3,,35,graduate,4,full_time,true,5,,,50000
+Ashok Sinha,9876543228,Kolkata,West Bengal,Bengali,dormant,,450,0,0,0,0,0,0,,,,2024-06-01,12,0,,58,graduate,8,full_time,false,3,,,0
+Farhan Sheikh,9876543229,Pune,Maharashtra,Marathi,dormant,economic.market_conditions,170,4,120000,0,0,30000,0.48,2025-09-15,2025-08-20,2025-08-01,,9,3,,29,graduate,3,full_time,true,7,,,40000
+Nandini Kulkarni,9876543230,Mysore,Karnataka,Kannada,dormant,personal.relocated,200,6,240000,0,0,40000,0.58,2025-08-01,2025-07-15,2025-07-01,,3,1,,33,post_graduate,5,full_time,true,6,,,55000

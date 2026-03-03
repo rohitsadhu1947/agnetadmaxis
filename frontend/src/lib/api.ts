@@ -216,4 +216,78 @@ export const api = {
     fetchAPI<any>(`/feedback-tickets/${ticketId}/messages`),
   addTicketMessage: (ticketId: string, data: any) =>
     fetchAPI<any>(`/feedback-tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // ======================== Cohort Analytics ========================
+  getCohortSummary: () => fetchAPI<any>('/cohort/summary'),
+  getCohortSegment: (segment: string) => fetchAPI<any>(`/cohort/segments/${segment}`),
+  getCohortAgentAnalysis: (agentId: number) => fetchAPI<any>(`/cohort/agent/${agentId}/analysis`),
+  reclassifyCohort: (agentIds?: number[]) =>
+    fetchAPI<any>('/cohort/reclassify', {
+      method: 'POST',
+      body: JSON.stringify(agentIds ? { agent_ids: agentIds } : {}),
+    }),
+  getCohortEngagementPlan: () => fetchAPI<any>('/cohort/engagement-plan'),
+  getCohortTrends: () => fetchAPI<any>('/cohort/trends'),
+
+  // ======================== Bulk Upload with Cohort ========================
+  bulkUploadCohort: (file: File) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adm_token') : null;
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch(`${API_BASE}/agents/bulk-upload-cohort`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    }).then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Upload failed: ${res.status}`);
+      }
+      return res.json();
+    });
+  },
+
+  // ======================== Agent-Submitted Feedback (admin view) ========================
+  getAgentSubmittedByDept: (department: string) =>
+    fetchAPI<any>(`/feedback-tickets/agent-submitted/queue/${department}`),
+  respondToAgentTicket: (ticketId: string, body: string, respondedBy: string) =>
+    fetchAPI<any>(`/feedback-tickets/agent-submitted/${ticketId}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ response_text: body, responded_by: respondedBy }),
+    }),
+  getADMAgentTickets: (admId: number) =>
+    fetchAPI<any>(`/feedback-tickets/agent-submitted/${admId}`),
+  getAgentTicketDetail: (ticketId: string) =>
+    fetchAPI<any>(`/agent-portal/feedback/ticket/${ticketId}`),
+
+  // ======================== Outreach ========================
+  sendTelegramOutreach: (agentIds: number[], customMessages?: Record<number, string>) =>
+    fetchAPI<any>('/outreach/send-telegram', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_ids: agentIds,
+        ...(customMessages ? { custom_messages: customMessages } : {}),
+      }),
+    }),
+  getWorkflowDefaults: (strategy: string) =>
+    fetchAPI<any>(`/outreach/workflow-defaults/${strategy}`),
+  saveOutreachWorkflow: (agentIds: number[], steps: any[]) =>
+    fetchAPI<any>('/outreach/save-workflow', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds, steps }),
+    }),
+  sendOutreachStep: (agentId: number, step: any) =>
+    fetchAPI<any>('/outreach/send-step', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, step }),
+    }),
+
+  // ======================== Dormancy Detection ========================
+  detectDormancy: (text: string) =>
+    fetchAPI<any>('/agents/detect-dormancy', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
 };

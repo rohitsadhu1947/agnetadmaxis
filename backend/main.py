@@ -238,6 +238,9 @@ from routes import (
     playbooks_router,
     communication_router,
     feedback_tickets_router,
+    agent_portal_router,
+    cohort_analytics_router,
+    outreach_router,
 )
 
 API_PREFIX = "/api/v1"
@@ -259,6 +262,9 @@ all_routers = [
     playbooks_router,
     communication_router,
     feedback_tickets_router,
+    agent_portal_router,
+    cohort_analytics_router,
+    outreach_router,
 ]
 
 # Mount all routers under /api/v1 (primary)
@@ -302,6 +308,7 @@ def health_check():
         "database_backend": db_backend,
         "ai_enabled": settings.ENABLE_AI_FEATURES and bool(settings.ANTHROPIC_API_KEY),
         "telegram_enabled": settings.ENABLE_TELEGRAM_BOT and bool(settings.TELEGRAM_BOT_TOKEN),
+        "agent_bot_enabled": settings.ENABLE_AGENT_BOT and bool(settings.AGENT_TELEGRAM_BOT_TOKEN),
     }
 
     # Only query DB if background init is complete

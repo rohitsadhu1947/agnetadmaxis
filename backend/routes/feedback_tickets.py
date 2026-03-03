@@ -13,7 +13,7 @@ from typing import Optional, List
 
 import io
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -22,12 +22,14 @@ from database import get_db, SessionLocal
 from models import (
     FeedbackTicket, DepartmentQueue, ReasonTaxonomy,
     AggregationAlert, Agent, ADM, TicketMessage,
+    AgentFeedbackTicket, AgentTicketMessage, AgentDepartmentQueue,
 )
 from schemas import (
     FeedbackTicketSubmit, FeedbackTicketResponse,
     DepartmentResponseSubmit, ScriptRating,
     ReasonTaxonomyResponse, DepartmentQueueResponse,
     AggregationAlertResponse, TicketMessageCreate,
+    AgentFeedbackTicketResponse,
 )
 from services.feedback_classifier import feedback_classifier, BUCKET_DISPLAY_NAMES
 
@@ -236,6 +238,35 @@ def reasons_by_bucket(db: Session = Depends(get_db)):
                 "reasons": [],
             }
         result[bucket]["reasons"].append({
+            "code": r.code,
+            "reason_name": r.reason_name,
+            "description": r.description,
+            "sub_reasons": json.loads(r.sub_reasons) if r.sub_reasons else [],
+        })
+    return list(result.values())
+
+
+@router.get("/taxonomy")
+def reason_taxonomy(
+    bucket: Optional[str] = Query(None, description="Filter by bucket"),
+    db: Session = Depends(get_db),
+):
+    """Get reason taxonomy for agent bot feedback selection. Alias for /reasons/by-bucket with optional bucket filter."""
+    query = db.query(ReasonTaxonomy).filter(ReasonTaxonomy.active == True)
+    if bucket:
+        query = query.filter(ReasonTaxonomy.bucket == bucket)
+    reasons = query.order_by(ReasonTaxonomy.bucket, ReasonTaxonomy.display_order).all()
+
+    result = {}
+    for r in reasons:
+        b = r.bucket
+        if b not in result:
+            result[b] = {
+                "bucket": b,
+                "display_name": BUCKET_DISPLAY_NAMES.get(b, b),
+                "reasons": [],
+            }
+        result[b]["reasons"].append({
             "code": r.code,
             "reason_name": r.reason_name,
             "description": r.description,
@@ -1149,7 +1180,9 @@ async def get_telegram_file(file_id: str):
     1. Calls Telegram's getFile API to get the file_path
     2. Streams the actual file back to the browser
     """
-    token = settings.TELEGRAM_BOT_TOKEN
+    # Try agent bot token first (agent-submitted voice notes use agent bot),
+    # then fall back to ADM bot token
+    token = settings.AGENT_TELEGRAM_BOT_TOKEN or settings.TELEGRAM_BOT_TOKEN
     if not token:
         raise HTTPException(status_code=503, detail="Telegram integration not configured")
 
@@ -1272,3 +1305,320 @@ def _check_aggregation_patterns(db: Session, ticket: FeedbackTicket):
                     logger.info(f"Aggregation alert created for {ticket.reason_code}")
     except Exception as e:
         logger.error(f"Error checking aggregation patterns: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Agent-submitted ticket helpers
+# ---------------------------------------------------------------------------
+
+def _enrich_agent_ticket(ticket: AgentFeedbackTicket, db: Session) -> dict:
+    """Add display names and computed fields to an agent-submitted ticket."""
+    agent = db.query(Agent).filter(Agent.id == ticket.agent_id).first()
+    adm = db.query(ADM).filter(ADM.id == ticket.adm_id).first() if ticket.adm_id else None
+
+    # Reason lookup
+    _reason_lookup: dict = {}
+    try:
+        all_reasons = db.query(ReasonTaxonomy).all()
+        _reason_lookup = {r.code: r.reason_name for r in all_reasons}
+    except Exception:
+        pass
+
+    reason_display = None
+    if ticket.reason_code:
+        reason_display = _reason_lookup.get(ticket.reason_code, ticket.reason_code)
+
+    # SLA status
+    sla_status = "on_track"
+    if ticket.sla_deadline:
+        now = datetime.utcnow()
+        if ticket.status in ("responded", "closed"):
+            sla_status = "completed"
+        elif now > ticket.sla_deadline:
+            sla_status = "breached"
+        elif now > ticket.sla_deadline - (ticket.sla_deadline - ticket.created_at) * 0.25:
+            sla_status = "warning"
+
+    data = {
+        "id": ticket.id,
+        "ticket_id": ticket.ticket_id,
+        "agent_id": ticket.agent_id,
+        "adm_id": ticket.adm_id,
+        "channel": ticket.channel,
+        "selected_reasons": [
+            {"code": c, "name": _reason_lookup.get(c, c)}
+            for c in (json.loads(ticket.selected_reasons) if ticket.selected_reasons else [])
+        ],
+        "raw_feedback_text": ticket.raw_feedback_text,
+        "parsed_summary": ticket.parsed_summary,
+        "bucket": ticket.bucket,
+        "reason_code": ticket.reason_code,
+        "secondary_reason_codes": [
+            {"code": c, "name": _reason_lookup.get(c, c)}
+            for c in (json.loads(ticket.secondary_reason_codes) if ticket.secondary_reason_codes else [])
+        ],
+        "ai_confidence": ticket.ai_confidence,
+        "priority": ticket.priority,
+        "urgency_score": ticket.urgency_score,
+        "churn_risk": ticket.churn_risk,
+        "sentiment": ticket.sentiment,
+        "sla_hours": ticket.sla_hours,
+        "sla_deadline": ticket.sla_deadline,
+        "status": ticket.status,
+        "department_response_text": ticket.department_response_text,
+        "department_responded_by": ticket.department_responded_by,
+        "department_responded_at": ticket.department_responded_at,
+        "adm_notified": ticket.adm_notified,
+        "adm_notified_at": ticket.adm_notified_at,
+        "voice_file_id": ticket.voice_file_id,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        # Enriched
+        "agent_name": agent.name if agent else None,
+        "adm_name": adm.name if adm else None,
+        "bucket_display": BUCKET_DISPLAY_NAMES.get(ticket.bucket, ticket.bucket),
+        "reason_display": reason_display,
+        "sla_status": sla_status,
+    }
+
+    # Message count
+    try:
+        message_count = db.query(AgentTicketMessage).filter(
+            AgentTicketMessage.ticket_id == ticket.id
+        ).count()
+        data["message_count"] = message_count
+    except Exception:
+        data["message_count"] = 0
+
+    return data
+
+
+async def _notify_agent_department_response(
+    agent_chat_id: str, ticket_id: str, bucket: str, response_text: str
+):
+    """Send Telegram notification to the agent when a department responds to their ticket."""
+    token = settings.AGENT_TELEGRAM_BOT_TOKEN
+    if not token:
+        logger.warning("AGENT_TELEGRAM_BOT_TOKEN not set — cannot notify agent")
+        return
+
+    bucket_label = BUCKET_DISPLAY_NAMES.get(bucket, bucket or "")
+    message = (
+        f"\u2705 *Department Response — {ticket_id}*\n\n"
+        f"*Department:* {bucket_label}\n\n"
+        f"\U0001F4DD *Response:*\n"
+        f"{response_text}\n\n"
+        f"_Your feedback has been addressed. Use /my\\_tickets to view all your tickets._"
+    )
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": agent_chat_id,
+        "text": message,
+        "parse_mode": "Markdown",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code == 200:
+                logger.info(f"Agent notified for ticket {ticket_id}")
+            else:
+                logger.error(f"Agent Telegram notification failed ({resp.status_code}): {resp.text}")
+    except Exception as e:
+        logger.error(f"Error notifying agent for ticket {ticket_id}: {e}")
+
+
+async def _notify_adm_agent_ticket_response(
+    ticket: AgentFeedbackTicket, response_text: str,
+):
+    """Notify the ADM via Telegram that a department responded to their agent's ticket."""
+    db = SessionLocal()
+    try:
+        token = settings.TELEGRAM_BOT_TOKEN
+        if not token:
+            return
+
+        adm = db.query(ADM).filter(ADM.id == ticket.adm_id).first()
+        if not adm or not adm.telegram_chat_id:
+            return
+
+        agent = db.query(Agent).filter(Agent.id == ticket.agent_id).first()
+        agent_name = agent.name if agent else "Agent"
+        bucket_label = BUCKET_DISPLAY_NAMES.get(ticket.bucket, ticket.bucket or "")
+
+        message = (
+            f"\U0001F4AC *Agent Ticket Response — {ticket.ticket_id}*\n\n"
+            f"*Agent:* {agent_name}\n"
+            f"*Department:* {bucket_label}\n\n"
+            f"\U0001F4DD *Department says:*\n"
+            f"{response_text}\n\n"
+            f"_Your agent's feedback ticket has been addressed._"
+        )
+
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": adm.telegram_chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+        }
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code == 200:
+                logger.info(f"ADM notified about agent ticket {ticket.ticket_id}")
+            else:
+                logger.error(f"ADM notification failed for agent ticket: {resp.text}")
+    except Exception as e:
+        logger.error(f"Error notifying ADM about agent ticket {ticket.ticket_id}: {e}")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Agent-submitted ticket endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/agent-submitted/{adm_id}")
+def list_agent_submitted_tickets(
+    adm_id: int,
+    status: Optional[str] = Query(None, description="Filter by ticket status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """ADM views their agents' submitted feedback tickets."""
+    query = db.query(AgentFeedbackTicket).filter(AgentFeedbackTicket.adm_id == adm_id)
+
+    if status:
+        query = query.filter(AgentFeedbackTicket.status == status)
+
+    total = query.count()
+    tickets = (
+        query.order_by(desc(AgentFeedbackTicket.created_at))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "tickets": [_enrich_agent_ticket(t, db) for t in tickets],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get("/agent-submitted/queue/{department}")
+def agent_submitted_department_queue(
+    department: str,
+    status: Optional[str] = Query(None, description="Filter by queue status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Department views agent-submitted tickets in their queue."""
+    query = db.query(AgentDepartmentQueue).filter(
+        AgentDepartmentQueue.department == department
+    )
+    if status:
+        query = query.filter(AgentDepartmentQueue.status == status)
+
+    total = query.count()
+    entries = (
+        query.order_by(AgentDepartmentQueue.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for entry in entries:
+        ticket = db.query(AgentFeedbackTicket).filter(
+            AgentFeedbackTicket.id == entry.ticket_id
+        ).first()
+        if ticket:
+            enriched = _enrich_agent_ticket(ticket, db)
+            enriched["queue_status"] = entry.status
+            enriched["queue_sla_status"] = entry.sla_status
+            enriched["escalation_level"] = entry.escalation_level
+            enriched["assigned_to"] = entry.assigned_to
+            result.append(enriched)
+
+    return {"tickets": result, "total": total, "department": department}
+
+
+@router.post("/agent-submitted/{ticket_id}/respond")
+async def respond_to_agent_ticket(
+    ticket_id: str,
+    data: DepartmentResponseSubmit,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Department responds to an agent-submitted feedback ticket."""
+    ticket = db.query(AgentFeedbackTicket).filter(
+        AgentFeedbackTicket.ticket_id == ticket_id
+    ).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Agent ticket not found")
+
+    if ticket.status == "closed":
+        raise HTTPException(status_code=400, detail="Ticket already closed")
+
+    # Save department response
+    ticket.department_response_text = data.response_text
+    ticket.department_responded_by = data.responded_by
+    ticket.department_responded_at = datetime.utcnow()
+    ticket.status = "responded"
+
+    # Update queue entry
+    queue = db.query(AgentDepartmentQueue).filter(
+        AgentDepartmentQueue.ticket_id == ticket.id
+    ).first()
+    if queue:
+        queue.status = "responded"
+        now = datetime.utcnow()
+        if ticket.sla_deadline and now > ticket.sla_deadline:
+            queue.sla_status = "breached"
+        else:
+            queue.sla_status = "on_track"
+
+    # Create department response message in thread
+    try:
+        dept_msg = AgentTicketMessage(
+            ticket_id=ticket.id,
+            sender_type="department",
+            sender_name=data.responded_by,
+            message_text=data.response_text,
+            message_type="text",
+        )
+        db.add(dept_msg)
+    except Exception as e:
+        logger.warning(f"Could not create dept AgentTicketMessage: {e}")
+
+    db.commit()
+    db.refresh(ticket)
+
+    # Notify agent via Telegram (background task)
+    agent = db.query(Agent).filter(Agent.id == ticket.agent_id).first()
+    if agent and agent.telegram_chat_id:
+        background_tasks.add_task(
+            _notify_agent_department_response,
+            agent_chat_id=agent.telegram_chat_id,
+            ticket_id=ticket.ticket_id,
+            bucket=ticket.bucket,
+            response_text=data.response_text,
+        )
+
+    # Notify ADM that the department responded to their agent's ticket (background task)
+    if ticket.adm_id:
+        background_tasks.add_task(
+            _notify_adm_agent_ticket_response,
+            ticket=ticket,
+            response_text=data.response_text,
+        )
+
+    return {
+        "ticket": _enrich_agent_ticket(ticket, db),
+        "message": "Response recorded and notifications queued.",
+    }

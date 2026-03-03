@@ -14,7 +14,7 @@ import {
 import { api } from '@/lib/api';
 
 interface BulkAgentImportModalProps {
-  mode: 'admin' | 'adm';
+  mode: 'admin' | 'adm' | 'cohort';
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -30,6 +30,11 @@ const ADM_SAMPLE = `name,phone,location,email,state,language,license_number,spec
 Rajesh Kumar,9876543210,Mumbai,rajesh@email.com,Maharashtra,Hindi,LIC001,Life Insurance
 Anita Sharma,9876543211,Delhi,,Delhi,English,,`;
 
+const COHORT_TEMPLATE = `name,phone,location,email,state,language,total_policies_sold,policies_last_12_months,premium_last_12_months,avg_ticket_size,persistency_ratio,days_since_last_activity,contact_attempts,contact_responses,years_in_insurance,work_type,age,education_level,has_app_installed,dormancy_reason`;
+const COHORT_SAMPLE = `name,phone,location,email,state,language,total_policies_sold,policies_last_12_months,premium_last_12_months,avg_ticket_size,persistency_ratio,days_since_last_activity,contact_attempts,contact_responses,years_in_insurance,work_type,age,education_level,has_app_installed,dormancy_reason
+Rajesh Kumar,9876543210,Mumbai,rajesh@email.com,Maharashtra,Hindi,15,3,250000,50000,0.7,45,5,3,2.5,full_time,35,Graduate,true,commission issues
+Anita Sharma,9876543211,Delhi,,Delhi,English,0,0,0,0,0,180,2,0,0.5,part_time,28,Post Graduate,false,no training`;
+
 const REQUIRED_FIELDS = ['name', 'phone', 'location'];
 
 export default function BulkAgentImportModal({
@@ -44,8 +49,8 @@ export default function BulkAgentImportModal({
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
 
-  const template = mode === 'admin' ? ADMIN_TEMPLATE : ADM_TEMPLATE;
-  const sample = mode === 'admin' ? ADMIN_SAMPLE : ADM_SAMPLE;
+  const template = mode === 'cohort' ? COHORT_TEMPLATE : mode === 'admin' ? ADMIN_TEMPLATE : ADM_TEMPLATE;
+  const sample = mode === 'cohort' ? COHORT_SAMPLE : mode === 'admin' ? ADMIN_SAMPLE : ADM_SAMPLE;
 
   const resetState = () => {
     setCsvText('');
@@ -140,9 +145,25 @@ export default function BulkAgentImportModal({
     setResult(null);
 
     try {
-      const res = await api.bulkImportAgents(parsed);
+      let res: any;
+      if (mode === 'cohort') {
+        // Convert parsed data back to CSV and upload as file
+        const headers = Object.keys(parsed[0]);
+        const csvContent = [
+          headers.join(','),
+          ...parsed.map(row => headers.map(h => row[h] ?? '').join(',')),
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const file = new File([blob], 'cohort_upload.csv', { type: 'text/csv' });
+        res = await api.bulkUploadCohort(file);
+        // Normalize response for cohort
+        res.created = res.total_uploaded || res.created || 0;
+        res.total_submitted = parsed.length;
+      } else {
+        res = await api.bulkImportAgents(parsed);
+      }
       setResult(res);
-      if (res.created > 0) {
+      if (res.created > 0 || res.total_uploaded > 0) {
         onSuccess();
       }
     } catch (e: any) {
@@ -156,7 +177,9 @@ export default function BulkAgentImportModal({
 
   // Determine preview columns from parsed data
   const previewCols = parsed.length > 0
-    ? ['name', 'phone', 'location', 'state', 'language', 'lifecycle_state', ...(mode === 'admin' ? ['assigned_adm_id'] : [])]
+    ? mode === 'cohort'
+      ? ['name', 'phone', 'location', 'total_policies_sold', 'premium_last_12_months', 'years_in_insurance', 'work_type']
+      : ['name', 'phone', 'location', 'state', 'language', 'lifecycle_state', ...(mode === 'admin' ? ['assigned_adm_id'] : [])]
     : [];
 
   return (
@@ -182,6 +205,10 @@ export default function BulkAgentImportModal({
             <p className="text-sm text-gray-400">
               Paste CSV or tab-separated data below. Required columns:{' '}
               <span className="text-white font-medium">name, phone, location</span>.
+              {mode === 'cohort' && (
+                <> Cohort fields: <span className="text-gray-300">total_policies_sold, premium_last_12_months, persistency_ratio, years_in_insurance, work_type, contact_attempts, etc.</span>
+                <span className="block mt-1 text-xs text-emerald-400/80">Agents will be auto-classified into cohort segments with reactivation scores.</span></>
+              )}
               {mode === 'admin' && (
                 <> Optional: <span className="text-gray-300">email, state, language, lifecycle_state, license_number, specialization, assigned_adm_id</span></>
               )}
@@ -358,9 +385,22 @@ export default function BulkAgentImportModal({
                   ) : (
                     <>
                       <h3 className="text-sm font-semibold text-white">
-                        Import Complete: {result.created} of{' '}
-                        {result.total_submitted} agents created
+                        Import Complete: {result.created || result.total_uploaded || 0} of{' '}
+                        {result.total_submitted || parsed.length} agents {mode === 'cohort' ? 'classified' : 'created'}
                       </h3>
+                      {mode === 'cohort' && result.segment_summary && Object.keys(result.segment_summary).length > 0 && (
+                        <div className="mt-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                          <p className="text-xs text-blue-400 font-medium mb-2">Cohort Classification:</p>
+                          <div className="grid grid-cols-2 gap-1">
+                            {Object.entries(result.segment_summary).map(([seg, count]: [string, any]) => (
+                              <div key={seg} className="flex justify-between text-xs">
+                                <span className="text-gray-400">{seg.replace(/_/g, ' ')}</span>
+                                <span className="text-white font-medium">{count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {result.errors_count > 0 && result.errors?.length > 0 && (
                         <div className="mt-3 p-3 rounded-lg bg-red-500/5 border border-red-500/10">
                           <p className="text-xs text-red-400 font-medium mb-1">

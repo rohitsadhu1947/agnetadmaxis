@@ -19,6 +19,9 @@ from routes.onboarding import router as onboarding_router
 from routes.playbooks import router as playbooks_router
 from routes.communication import router as communication_router
 from routes.feedback_tickets import router as feedback_tickets_router
+from routes.agent_portal import router as agent_portal_router
+from routes.cohort_analytics import router as cohort_analytics_router
+from routes.outreach import router as outreach_router
 
 __all__ = [
     "agents_router",
@@ -37,4 +40,7 @@ __all__ = [
     "playbooks_router",
     "communication_router",
     "feedback_tickets_router",
+    "agent_portal_router",
+    "cohort_analytics_router",
+    "outreach_router",
 ]

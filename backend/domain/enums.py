@@ -236,3 +236,56 @@ class SignalType(StrEnum):
     LIFECYCLE_STATE_CHANGED = "lifecycle_state_changed"
     PLAYBOOK_STARTED = "playbook_started"
     PLAYBOOK_COMPLETED = "playbook_completed"
+
+
+# ---------------------------------------------------------------------------
+# Cohort Segments (agent classification)
+# ---------------------------------------------------------------------------
+class CohortSegment(StrEnum):
+    """16 named cohort segments for agent classification."""
+    PROMISING_ROOKIES = "promising_rookies"
+    STALLED_STARTERS = "stalled_starters"
+    SLEEPING_GIANTS = "sleeping_giants"
+    FADING_STARS = "fading_stars"
+    WEEKEND_WARRIORS = "weekend_warriors"
+    ECONOMIC_DEFECTORS = "economic_defectors"
+    SYSTEM_FRUSTRATED = "system_frustrated"
+    ABANDONED_BY_ADM = "abandoned_by_adm"
+    CHRONIC_NEVER_ACTIVATORS = "chronic_never_activators"
+    LIFE_EVENT_PAUSED = "life_event_paused"
+    REGULATORY_BLOCKED = "regulatory_blocked"
+    DIGITAL_ORPHANS = "digital_orphans"
+    HIGH_POTENTIAL_UNPOLISHED = "high_potential_unpolished"
+    COMPETITOR_POACHED = "competitor_poached"
+    SATISFIED_PASSIVES = "satisfied_passives"
+    LOST_CAUSES = "lost_causes"
+
+
+class EngagementStrategy(StrEnum):
+    """Engagement strategy decided by cohort classifier."""
+    DIRECT_CALL = "direct_call"
+    WHATSAPP_FIRST = "whatsapp_first"
+    TELEGRAM_ONLY = "telegram_only"
+    NO_CONTACT = "no_contact"
+
+
+class WorkType(StrEnum):
+    """Agent work orientation."""
+    FULL_TIME = "full_time"
+    PART_TIME = "part_time"
+    SIDE_HUSTLE = "side_hustle"
+
+
+class MarketTier(StrEnum):
+    """Market tier based on agent location."""
+    METRO = "metro"
+    TIER_2 = "tier_2"
+    SEMI_URBAN = "semi_urban"
+    RURAL = "rural"
+
+
+class CareerStage(StrEnum):
+    """Agent career stage in insurance."""
+    ROOKIE = "rookie"          # < 1 year
+    DEVELOPING = "developing"  # 1-3 years
+    EXPERIENCED = "experienced"  # 3+ years

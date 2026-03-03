@@ -64,6 +64,39 @@ class AgentResponse(BaseModel):
     license_number: Optional[str] = None
     date_of_joining: Optional[date] = None
     specialization: Optional[str] = None
+    # Performance fields
+    total_policies_sold: int = 0
+    total_premium_generated: Optional[float] = None
+    policies_last_12_months: int = 0
+    premium_last_12_months: Optional[float] = None
+    avg_ticket_size: Optional[float] = None
+    best_month_premium: Optional[float] = None
+    persistency_ratio: Optional[float] = None
+    # Activity fields
+    last_login_date: Optional[date] = None
+    last_training_date: Optional[date] = None
+    last_proposal_date: Optional[date] = None
+    days_since_last_activity: Optional[int] = None
+    # Contact fields
+    contact_attempts: Optional[int] = None
+    contact_responses: Optional[int] = None
+    response_rate: float = 0.0
+    avg_response_time_hours: Optional[float] = None
+    preferred_channel: Optional[str] = None
+    # Demographics
+    age: Optional[int] = None
+    education_level: Optional[str] = None
+    years_in_insurance: float = 0.0
+    previous_insurer: Optional[str] = None
+    is_poached: Optional[bool] = None
+    work_type: Optional[str] = None
+    has_app_installed: Optional[bool] = None
+    digital_savviness_score: Optional[float] = None
+    # Cohort classification fields
+    cohort_segment: Optional[str] = None
+    reactivation_score: Optional[float] = None
+    engagement_strategy: Optional[str] = None
+    churn_risk_level: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -626,3 +659,129 @@ class TicketMessageCreate(BaseModel):
     message_type: Optional[str] = "text"  # "text" | "clarification_request" | "photo" | "document" | "voice"
     voice_file_id: Optional[str] = None  # Telegram file_id for voice/photo/document
     metadata_json: Optional[str] = None  # JSON string for extra data (file name, mime type, etc.)
+
+
+# ==================== Agent Portal Schemas ====================
+
+class AgentRegister(BaseModel):
+    """Agent registers via Telegram bot by providing phone number."""
+    phone: str = Field(..., min_length=10, max_length=20)
+    telegram_chat_id: str
+
+
+class AgentProfileResponse(BaseModel):
+    id: int
+    name: str
+    phone: str
+    email: Optional[str] = None
+    location: str
+    state: Optional[str] = None
+    language: str
+    lifecycle_state: str
+    engagement_score: float
+    cohort_segment: Optional[str] = None
+    reactivation_score: float = 0.0
+    engagement_strategy: Optional[str] = None
+    churn_risk_level: Optional[str] = None
+    assigned_adm_id: Optional[int] = None
+    assigned_adm_name: Optional[str] = None
+    total_policies_sold: int = 0
+    premium_last_12_months: float = 0.0
+    last_contact_date: Optional[date] = None
+    last_training_date: Optional[date] = None
+    telegram_registered: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class AgentFeedbackSubmit(BaseModel):
+    """Agent submits feedback directly to a department."""
+    agent_id: int
+    channel: str = "telegram"
+    selected_reason_codes: Optional[List[str]] = None
+    raw_feedback_text: Optional[str] = None
+    voice_file_id: Optional[str] = None
+
+
+class AgentFeedbackTicketResponse(BaseModel):
+    id: int
+    ticket_id: str
+    agent_id: int
+    adm_id: Optional[int] = None
+    channel: str
+    selected_reasons: Optional[str] = None
+    raw_feedback_text: Optional[str] = None
+    parsed_summary: Optional[str] = None
+    bucket: str
+    reason_code: Optional[str] = None
+    priority: str
+    sentiment: Optional[str] = None
+    sla_hours: int
+    sla_deadline: Optional[datetime] = None
+    status: str
+    department_response_text: Optional[str] = None
+    department_responded_at: Optional[datetime] = None
+    adm_notified: bool = False
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    # Enriched
+    agent_name: Optional[str] = None
+    adm_name: Optional[str] = None
+    bucket_display: Optional[str] = None
+    reason_display: Optional[str] = None
+    sla_status: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentTicketMessageCreate(BaseModel):
+    """Agent or department creates a message on an agent ticket."""
+    sender_type: str  # "agent" | "department"
+    sender_name: str
+    message_text: str
+    message_type: Optional[str] = "text"
+    voice_file_id: Optional[str] = None
+    metadata_json: Optional[str] = None
+
+
+# ==================== Cohort Analysis Schemas ====================
+
+class CohortClassificationResult(BaseModel):
+    """Result of classifying a single agent into a cohort."""
+    agent_id: int
+    agent_name: str
+    cohort_segment: str
+    reactivation_score: float
+    engagement_strategy: str
+    churn_risk_level: str
+    score_breakdown: dict  # sub-scores
+    first_message: Optional[str] = None
+
+
+class CohortSummary(BaseModel):
+    """Overview of cohort distribution across all agents."""
+    total_agents: int
+    segment_distribution: dict  # segment -> count
+    avg_reactivation_score: float
+    strategy_distribution: dict  # strategy -> count
+    risk_distribution: dict  # risk_level -> count
+
+
+class CohortSegmentDetail(BaseModel):
+    """Detail for a specific cohort segment."""
+    segment: str
+    segment_display: str
+    count: int
+    avg_reactivation_score: float
+    recommended_strategy: str
+    agents: List[dict]
+
+
+class BulkUploadResult(BaseModel):
+    """Result of bulk agent upload with cohort classification."""
+    total_uploaded: int
+    created: int
+    updated: int
+    classified: int
+    errors: List[str]
+    segment_summary: dict  # segment -> count

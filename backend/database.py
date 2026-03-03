@@ -80,6 +80,7 @@ def init_db():
         User, Product,
         ReasonTaxonomy, FeedbackTicket, DepartmentQueue, AggregationAlert,
         TicketMessage,
+        AgentFeedbackTicket, AgentTicketMessage, AgentDepartmentQueue,
     )
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created / verified.")

@@ -184,7 +184,7 @@ export default function AgentsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-surface-border bg-surface-card/30">
-                {['Agent', 'Phone', 'Region', 'State', 'Dormancy Days', 'Reason', 'ADM', 'Status', ''].map(
+                {['Agent', 'Phone', 'Region', 'State', 'Dormancy Days', 'Reason', 'Cohort', 'Score', 'ADM', 'Status', ''].map(
                   (header) => (
                     <th
                       key={header}
@@ -250,6 +250,28 @@ export default function AgentsPage() {
                       </span>
                     ) : (
                       <span className="text-xs text-gray-600">-</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {agent.cohort_segment ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                        {(agent.cohort_segment || '').replace(/_/g, ' ')}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {agent.reactivation_score != null ? (
+                      <span className={`text-xs font-semibold ${
+                        agent.reactivation_score >= 70 ? 'text-emerald-400' :
+                        agent.reactivation_score >= 40 ? 'text-amber-400' :
+                        agent.reactivation_score >= 20 ? 'text-orange-400' : 'text-red-400'
+                      }`}>
+                        {Math.round(agent.reactivation_score)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-400">

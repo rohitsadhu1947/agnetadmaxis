@@ -104,7 +104,7 @@ function formatDate(dateStr: string | null) {
 }
 
 // ─── Main page ───────────────────────────────────────────────────
-type TabKey = 'queue' | 'departments' | 'analytics' | 'alerts';
+type TabKey = 'queue' | 'departments' | 'analytics' | 'alerts' | 'agent_submitted';
 
 export default function FeedbackTicketsPage() {
   const { user, isAdmin } = useAuth();
@@ -126,6 +126,7 @@ export default function FeedbackTicketsPage() {
     { key: 'departments', label: 'Department View', icon: Building2 },
     { key: 'analytics', label: 'Analytics', icon: TrendingUp },
     { key: 'alerts', label: 'Alerts', icon: AlertTriangle, count: (alerts || []).length },
+    { key: 'agent_submitted', label: 'Agent Submitted', icon: User },
   ];
 
   return (
@@ -181,6 +182,7 @@ export default function FeedbackTicketsPage() {
       {activeTab === 'departments' && <DepartmentView refetch={refetchTickets} />}
       {activeTab === 'analytics' && <AnalyticsTab analytics={analytics} loading={analyticsLoading} tickets={tickets} />}
       {activeTab === 'alerts' && <AlertsTab alerts={alerts || []} />}
+      {activeTab === 'agent_submitted' && <AgentSubmittedTab />}
     </div>
   );
 }
@@ -1328,6 +1330,288 @@ function AlertsTab({ alerts }: { alerts: any[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+
+// ─── Agent Submitted Tab ─────────────────────────────────────────
+function AgentSubmittedTab() {
+  const [selectedBucket, setSelectedBucket] = useState<string>('all');
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTicket, setSelectedTicket] = useState<any>(null);
+  const [ticketMessages, setTicketMessages] = useState<any[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [responseText, setResponseText] = useState('');
+  const [responding, setResponding] = useState(false);
+  const [responseSuccess, setResponseSuccess] = useState('');
+
+  const fetchTickets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const buckets = selectedBucket === 'all'
+        ? ['underwriting', 'finance', 'contest', 'operations', 'product']
+        : [selectedBucket];
+      const allTickets: any[] = [];
+      for (const b of buckets) {
+        try {
+          const data = await api.getAgentSubmittedByDept(b);
+          const arr = Array.isArray(data) ? data : (data?.tickets || []);
+          allTickets.push(...arr);
+        } catch {
+          // bucket might have no tickets
+        }
+      }
+      setTickets(allTickets);
+    } catch {
+      setTickets([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedBucket]);
+
+  useEffect(() => { fetchTickets(); }, [fetchTickets]);
+
+  const fetchTicketDetail = useCallback(async (ticketId: string) => {
+    setMessagesLoading(true);
+    try {
+      const data = await api.getAgentTicketDetail(ticketId);
+      setTicketMessages(data?.messages || []);
+    } catch {
+      setTicketMessages([]);
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, []);
+
+  const handleToggleTicket = useCallback((ticket: any) => {
+    if (selectedTicket?.id === ticket.id) {
+      setSelectedTicket(null);
+      setTicketMessages([]);
+    } else {
+      setSelectedTicket(ticket);
+      fetchTicketDetail(ticket.ticket_id);
+    }
+  }, [selectedTicket, fetchTicketDetail]);
+
+  const handleRespond = async (ticketId: string) => {
+    if (!responseText.trim()) return;
+    setResponding(true);
+    try {
+      await api.respondToAgentTicket(ticketId, responseText, 'Admin');
+      setResponseSuccess('Response sent to agent');
+      setResponseText('');
+      fetchTicketDetail(ticketId);
+      fetchTickets();
+      setTimeout(() => setResponseSuccess(''), 3000);
+    } catch (e: any) {
+      alert(e.message || 'Failed to respond');
+    } finally {
+      setResponding(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {responseSuccess && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span className="text-sm text-emerald-400">{responseSuccess}</span>
+        </div>
+      )}
+
+      {/* Bucket filters */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={() => setSelectedBucket('all')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            selectedBucket === 'all'
+              ? 'bg-brand-red/10 text-white border border-brand-red/20'
+              : 'text-gray-400 hover:text-white bg-surface-card border border-surface-border'
+          }`}
+        >
+          All ({tickets.length})
+        </button>
+        {Object.entries(BUCKETS).map(([key, cfg]) => {
+          const Icon = cfg.icon;
+          return (
+            <button
+              key={key}
+              onClick={() => setSelectedBucket(key)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                selectedBucket === key
+                  ? `${cfg.bg} ${cfg.color} border ${cfg.border}`
+                  : 'text-gray-400 hover:text-white bg-surface-card border border-surface-border'
+              }`}
+            >
+              <Icon className="w-3 h-3" />
+              {cfg.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tickets.length === 0 ? (
+        <div className="text-center py-16">
+          <User className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-400 text-sm">No agent-submitted tickets yet</p>
+          <p className="text-gray-500 text-xs mt-1">Tickets submitted by agents via Telegram will appear here</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {tickets.map((ticket: any) => {
+            const bucket = BUCKETS[ticket.bucket] || BUCKETS.operations;
+            const BucketIcon = bucket.icon;
+            const status = STATUS_CONFIG[ticket.status] || STATUS_CONFIG.received;
+            const StatusIcon = status.icon;
+            const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.medium;
+            const isExpanded = selectedTicket?.id === ticket.id;
+
+            return (
+              <div key={ticket.id} className="glass-card p-4">
+                <div
+                  className="flex items-start gap-4 cursor-pointer"
+                  onClick={() => handleToggleTicket(ticket)}
+                >
+                  <div className={`p-2 rounded-lg ${bucket.bg}`}>
+                    <BucketIcon className={`w-4 h-4 ${bucket.color}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-mono text-gray-500">{ticket.ticket_id}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${status.bg} ${status.color}`}>
+                        {status.label}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${priority.bg} ${priority.color}`}>
+                        {priority.label}
+                      </span>
+                      {(ticket.message_count || 0) > 1 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400">
+                          {ticket.message_count} messages
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-white">
+                      {ticket.agent_name || 'Agent'} — {bucket.label}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                      {ticket.raw_feedback_text || ticket.parsed_summary || 'No details'}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-[11px] text-gray-500">{formatDate(ticket.created_at)}</p>
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-500 mt-1" /> : <ChevronDown className="w-4 h-4 text-gray-500 mt-1" />}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-surface-border/30 space-y-3">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div><span className="text-gray-500">Reason:</span> <span className="text-gray-300">{ticket.reason_display || ticket.reason_code || '—'}</span></div>
+                      <div><span className="text-gray-500">Channel:</span> <span className="text-gray-300">{ticket.channel || 'telegram'}</span></div>
+                      <div><span className="text-gray-500">Sentiment:</span> <span className="text-gray-300">{ticket.sentiment || '—'}</span></div>
+                      <div><span className="text-gray-500">Churn Risk:</span> <span className="text-gray-300">{ticket.churn_risk || '—'}</span></div>
+                    </div>
+
+                    {ticket.parsed_summary && (
+                      <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                        <p className="text-[10px] text-blue-400 font-medium mb-1">AI Summary:</p>
+                        <p className="text-xs text-gray-300">{ticket.parsed_summary}</p>
+                      </div>
+                    )}
+
+                    {/* Conversation Thread */}
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-medium mb-2 uppercase tracking-wide">Conversation</p>
+                      {messagesLoading ? (
+                        <div className="flex items-center gap-2 py-3">
+                          <Loader2 className="w-3 h-3 animate-spin text-gray-500" />
+                          <span className="text-xs text-gray-500">Loading messages...</span>
+                        </div>
+                      ) : ticketMessages.length === 0 ? (
+                        <p className="text-xs text-gray-600 py-2">No messages yet</p>
+                      ) : (
+                        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                          {ticketMessages.map((msg: any) => {
+                            const isAgent = msg.sender_type === 'agent';
+                            const isDept = msg.sender_type === 'department';
+                            return (
+                              <div
+                                key={msg.id}
+                                className={`flex ${isDept ? 'justify-start' : 'justify-end'}`}
+                              >
+                                <div className={`max-w-[80%] p-2.5 rounded-lg text-xs ${
+                                  isDept
+                                    ? 'bg-emerald-500/10 border border-emerald-500/20'
+                                    : 'bg-blue-500/15 border border-blue-500/25'
+                                }`}>
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    {isDept ? (
+                                      <Building2 className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <User className="w-3 h-3 text-blue-400" />
+                                    )}
+                                    <span className={`text-[10px] font-medium ${isDept ? 'text-emerald-400' : 'text-blue-400'}`}>
+                                      {msg.sender_name}
+                                    </span>
+                                    <span className="text-[9px] text-gray-600 ml-auto">{formatDate(msg.created_at)}</span>
+                                  </div>
+                                  {msg.voice_file_id && (
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <Mic className="w-3 h-3 text-purple-400" />
+                                      <a
+                                        href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/feedback-tickets/telegram-file/${msg.voice_file_id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-purple-400 underline"
+                                      >
+                                        Play voice note
+                                      </a>
+                                    </div>
+                                  )}
+                                  <p className="text-gray-300">{msg.message_text}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Always show response form */}
+                    <div className="space-y-2 pt-2 border-t border-surface-border/20">
+                      <textarea
+                        value={responseText}
+                        onChange={(e) => setResponseText(e.target.value)}
+                        placeholder="Type department response..."
+                        rows={2}
+                        className="w-full p-3 rounded-lg bg-[#0B1120] border border-surface-border/30 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-red/30 resize-none"
+                      />
+                      <button
+                        onClick={() => handleRespond(ticket.ticket_id)}
+                        disabled={responding || !responseText.trim()}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-red hover:bg-brand-red/90 text-white text-sm font-medium disabled:opacity-40 transition-all"
+                      >
+                        {responding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        Respond to Agent
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
