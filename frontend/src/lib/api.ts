@@ -290,4 +290,45 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+
+  // ======================== People Feedback (Agency Development) ========================
+  // Privacy: requires admin or agency_dev role on the backend.
+  // ADM users get 403 — they must never see feedback agents file about them.
+  listPeopleFeedback: (params?: {
+    status?: string;
+    category?: string;
+    sla_breached_only?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.sla_breached_only) qs.set('sla_breached_only', 'true');
+    if (params?.search) qs.set('search', params.search);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return fetchAPI<any>(`/people-feedback${q ? '?' + q : ''}`);
+  },
+  getPeopleFeedbackStats: () => fetchAPI<any>('/people-feedback/meta/stats'),
+  getPeopleFeedbackCategories: () => fetchAPI<any>('/people-feedback/meta/categories'),
+  getPeopleFeedbackDetail: (ticketId: number) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}`),
+  replyToPeopleFeedback: (ticketId: number, text: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  addPeopleFeedbackNote: (ticketId: number, text: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/note`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  changePeopleFeedbackStatus: (ticketId: number, newStatus: string, note?: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ new_status: newStatus, note }),
+    }),
 };

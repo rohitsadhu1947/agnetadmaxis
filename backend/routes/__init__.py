@@ -22,6 +22,17 @@ from routes.feedback_tickets import router as feedback_tickets_router
 from routes.agent_portal import router as agent_portal_router
 from routes.cohort_analytics import router as cohort_analytics_router
 from routes.outreach import router as outreach_router
+# voice_call is an optional POC module — gracefully skipped if its source
+# (or its deps like livekit-api) is not deployed. Avoids hard failures in
+# environments where the POC isn't enabled.
+try:
+    from routes.voice_call import router as voice_call_router  # type: ignore
+    HAS_VOICE_CALL = True
+except ImportError:
+    voice_call_router = None  # type: ignore
+    HAS_VOICE_CALL = False
+
+from routes.people_feedback import router as people_feedback_router
 
 __all__ = [
     "agents_router",
@@ -43,4 +54,7 @@ __all__ = [
     "agent_portal_router",
     "cohort_analytics_router",
     "outreach_router",
+    "voice_call_router",
+    "HAS_VOICE_CALL",
+    "people_feedback_router",
 ]
