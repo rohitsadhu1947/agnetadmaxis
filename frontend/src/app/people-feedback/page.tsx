@@ -55,6 +55,11 @@ interface Ticket {
   initial_text: string | null;
   has_voice: boolean;
   has_attachment: boolean;
+  attachment_file_name?: string | null;
+  // Returned only in the Agency Dev view — used for /people-feedback/file/{id}
+  voice_file_id?: string | null;
+  attachment_file_id?: string | null;
+  attachment_mime_type?: string | null;
   status: Status;
   sla_due_at: string | null;
   is_sla_breached: boolean;
@@ -72,6 +77,10 @@ interface TicketMessage {
   text: string | null;
   has_voice: boolean;
   has_attachment: boolean;
+  attachment_file_name?: string | null;
+  voice_file_id?: string | null;
+  attachment_file_id?: string | null;
+  attachment_mime_type?: string | null;
   message_type: string;
   is_status_change: boolean;
   created_at: string;
@@ -499,10 +508,18 @@ export default function PeopleFeedbackPage() {
                       {detail.initial_text}
                     </div>
                   )}
-                  {(detail.has_voice || detail.has_attachment) && (
-                    <div className="mt-2 text-xs text-gray-400 flex gap-3">
-                      {detail.has_voice && <span>🎙 Voice note attached</span>}
-                      {detail.has_attachment && <span>📎 Document attached</span>}
+                  {detail.voice_file_id && (
+                    <div className="mt-3">
+                      <TelegramVoicePlayer fileId={detail.voice_file_id} />
+                    </div>
+                  )}
+                  {detail.attachment_file_id && (
+                    <div className="mt-3">
+                      <TelegramAttachmentLink
+                        fileId={detail.attachment_file_id}
+                        fileName={detail.attachment_file_name || 'attachment'}
+                        mimeType={detail.attachment_mime_type || undefined}
+                      />
                     </div>
                   )}
                 </div>
@@ -641,11 +658,164 @@ function ThreadMessage({ m }: { m: TicketMessage }) {
           <span className="ml-2 text-gray-500 normal-case tracking-normal">{timeAgo(m.created_at)}</span>
         </div>
         {m.text && <div className="text-sm text-gray-100 mt-1 whitespace-pre-wrap">{m.text}</div>}
-        {(m.has_voice || m.has_attachment) && (
-          <div className="mt-1 text-xs text-gray-400 flex gap-3">
-            {m.has_voice && <span>🎙</span>}
-            {m.has_attachment && <span>📎</span>}
+        {m.voice_file_id && (
+          <div className="mt-2">
+            <TelegramVoicePlayer fileId={m.voice_file_id} compact />
           </div>
+        )}
+        {m.attachment_file_id && (
+          <div className="mt-2">
+            <TelegramAttachmentLink
+              fileId={m.attachment_file_id}
+              fileName={m.attachment_file_name || 'attachment'}
+              mimeType={m.attachment_mime_type || undefined}
+              compact
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- Telegram media -----------------------------
+// <audio> tags can't send Authorization headers, so we fetch the blob with
+// auth and set the resulting object URL on the audio element.
+
+function TelegramVoicePlayer({ fileId, compact }: { fileId: string; compact?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    let blobUrl: string | null = null;
+    (async () => {
+      try {
+        const blob = await api.fetchPeopleFeedbackFileBlob(fileId);
+        if (cancelled) return;
+        blobUrl = URL.createObjectURL(blob);
+        setUrl(blobUrl);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Failed to load voice note');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [fileId]);
+
+  if (loading) {
+    return (
+      <div className={`text-xs text-gray-400 flex items-center gap-2 ${compact ? '' : 'px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10'}`}>
+        <span>🎙</span>
+        <span>Loading voice note…</span>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="text-xs text-red-300 flex items-center gap-2">
+        <span>🎙</span>
+        <span>Couldn't load voice note: {error}</span>
+      </div>
+    );
+  }
+  return (
+    <div className={compact ? '' : 'px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10'}>
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1 flex items-center gap-1.5">
+        🎙 Voice note from agent
+      </div>
+      {url && (
+        <audio
+          controls
+          src={url}
+          className="w-full max-w-sm"
+          style={{ height: 32 }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TelegramAttachmentLink({
+  fileId, fileName, mimeType, compact,
+}: { fileId: string; fileName: string; mimeType?: string; compact?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    let blobUrl: string | null = null;
+    (async () => {
+      try {
+        const blob = await api.fetchPeopleFeedbackFileBlob(fileId);
+        if (cancelled) return;
+        blobUrl = URL.createObjectURL(blob);
+        setUrl(blobUrl);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Failed to fetch attachment');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [fileId]);
+
+  const isImage = (mimeType || '').startsWith('image/');
+  const isPdf = (mimeType || '').includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
+
+  if (loading) {
+    return (
+      <div className={`text-xs text-gray-400 flex items-center gap-2 ${compact ? '' : 'px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10'}`}>
+        <span>📎</span>
+        <span>Loading {fileName}…</span>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="text-xs text-red-300 flex items-center gap-2">
+        <span>📎</span>
+        <span>Couldn't load {fileName}: {error}</span>
+      </div>
+    );
+  }
+  if (!url) return null;
+
+  return (
+    <div className={compact ? '' : 'px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10'}>
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
+        📎 Attachment from agent
+      </div>
+      {isImage && (
+        <img src={url} alt={fileName} className="max-w-xs rounded-md mb-2" />
+      )}
+      <div className="flex items-center gap-3 text-sm">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-300 hover:text-blue-200 underline truncate"
+        >
+          {fileName}
+        </a>
+        <a
+          href={url}
+          download={fileName}
+          className="text-xs text-gray-400 hover:text-gray-200"
+        >
+          Download
+        </a>
+        {isPdf && (
+          <span className="text-[10px] text-gray-500">Click to open in new tab</span>
         )}
       </div>
     </div>

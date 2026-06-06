@@ -331,4 +331,25 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ new_status: newStatus, note }),
     }),
+  /**
+   * Build a URL to fetch a voice note or document attachment that came in via
+   * the agent Telegram bot. The backend proxies from Telegram and streams the
+   * bytes. Requires admin/agency_dev auth — include the token via fetch headers
+   * if using fetch(), or set <audio src=...> directly (server will redirect
+   * with 401 if unauthorised). We don't expose the bot token to the frontend.
+   *
+   * Because <audio src=> can't send Authorization headers, we use a query-token
+   * pattern: the page-side useEffect fetches the audio with auth, then sets
+   * the resulting blob URL on the <audio> element. See `usePeopleFeedbackFile`.
+   */
+  peopleFeedbackFileUrl: (fileId: string) => `/people-feedback/file/${encodeURIComponent(fileId)}`,
+  fetchPeopleFeedbackFileBlob: async (fileId: string): Promise<Blob> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adm_token') : null;
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+    const res = await fetch(`${base}/people-feedback/file/${encodeURIComponent(fileId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`File fetch failed: ${res.status}`);
+    return res.blob();
+  },
 };

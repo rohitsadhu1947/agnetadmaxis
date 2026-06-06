@@ -42,11 +42,14 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 
+from config import settings
 from database import get_db
 from models import (
     Agent,
@@ -227,6 +230,11 @@ def _ticket_to_dict(t: AgentPeopleFeedback, include_internal: bool, include_mess
         d["internal_notes"] = t.internal_notes
         d["assigned_to_user_id"] = t.assigned_to_user_id
         d["assigned_to_name"] = t.assigned_to.name if t.assigned_to else None
+        # Expose file_ids so the dashboard can fetch /people-feedback/file/{id}
+        # for playback. Only returned in the Agency Dev view (never to agent).
+        d["voice_file_id"] = t.voice_file_id
+        d["attachment_file_id"] = t.attachment_file_id
+        d["attachment_mime_type"] = t.attachment_mime_type
 
     if include_messages:
         d["messages"] = [_message_to_dict(m, include_internal=include_internal) for m in t.messages]
@@ -238,7 +246,7 @@ def _message_to_dict(m: AgentPeopleFeedbackMessage, include_internal: bool) -> O
     # Internal notes are NEVER returned to the agent
     if m.message_type == "note" and not include_internal:
         return None
-    return {
+    d = {
         "id": m.id,
         "sender_role": m.sender_role,
         "sender_name": m.sender_name,
@@ -250,6 +258,12 @@ def _message_to_dict(m: AgentPeopleFeedbackMessage, include_internal: bool) -> O
         "is_status_change": m.is_status_change,
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
+    # Expose file_ids for the Agency Dev view so the dashboard can render playback
+    if include_internal:
+        d["voice_file_id"] = m.voice_file_id
+        d["attachment_file_id"] = m.attachment_file_id
+        d["attachment_mime_type"] = m.attachment_mime_type
+    return d
 
 
 def _strip_none_messages(d: dict) -> dict:
@@ -578,6 +592,127 @@ def add_internal_note(
     return {"ok": True, "message_id": msg.id}
 
 
+@router.get("/file/{file_id}")
+async def get_people_feedback_file(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Proxy a Telegram voice note / document attached to a people-feedback ticket.
+
+    Privacy: requires admin or agency_dev role. ADM users get 403 (same as
+    every other read endpoint in this module).
+
+    Security: verifies the file_id actually exists on a people-feedback ticket
+    or message before pulling from Telegram. Prevents this endpoint from
+    becoming an open proxy for arbitrary Telegram files.
+    """
+    _require_agency_dev(current_user)
+
+    # Verify the file_id is one we own — either initial submission or any reply
+    exists_on_ticket = db.query(AgentPeopleFeedback).filter(
+        or_(
+            AgentPeopleFeedback.voice_file_id == file_id,
+            AgentPeopleFeedback.attachment_file_id == file_id,
+        )
+    ).first()
+    exists_on_msg = db.query(AgentPeopleFeedbackMessage).filter(
+        or_(
+            AgentPeopleFeedbackMessage.voice_file_id == file_id,
+            AgentPeopleFeedbackMessage.attachment_file_id == file_id,
+        )
+    ).first()
+    if not (exists_on_ticket or exists_on_msg):
+        raise HTTPException(404, "File not found on any people-feedback record")
+
+    # Build list of bot tokens to try — voice could be from agent bot OR ADM bot
+    tokens = []
+    if settings.AGENT_TELEGRAM_BOT_TOKEN:
+        tokens.append(settings.AGENT_TELEGRAM_BOT_TOKEN)
+    if settings.TELEGRAM_BOT_TOKEN:
+        tokens.append(settings.TELEGRAM_BOT_TOKEN)
+    if not tokens:
+        raise HTTPException(503, "Telegram integration not configured on the server")
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Step 1: ask Telegram for the file_path — try each token
+            data = None
+            winning_token = tokens[0]
+            for t in tokens:
+                resp = await client.get(
+                    f"https://api.telegram.org/bot{t}/getFile",
+                    params={"file_id": file_id},
+                )
+                if resp.status_code == 200:
+                    d = resp.json()
+                    if d.get("ok"):
+                        data = d
+                        winning_token = t
+                        break
+
+            if not data or not data.get("ok"):
+                raise HTTPException(404, "File not found on Telegram")
+
+            file_path = data["result"].get("file_path", "")
+            if not file_path:
+                raise HTTPException(404, "Telegram returned no file_path")
+
+            # Step 2: download the actual bytes
+            file_resp = await client.get(
+                f"https://api.telegram.org/file/bot{winning_token}/{file_path}"
+            )
+            if file_resp.status_code != 200:
+                raise HTTPException(502, "Failed to fetch file bytes from Telegram")
+
+            # Step 3: pick a content-type by extension
+            ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+            content_type_map = {
+                "ogg": "audio/ogg",
+                "oga": "audio/ogg",
+                "opus": "audio/ogg",
+                "mp3": "audio/mpeg",
+                "m4a": "audio/mp4",
+                "wav": "audio/wav",
+                "pdf": "application/pdf",
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "gif": "image/gif",
+                "webp": "image/webp",
+                "mp4": "video/mp4",
+                "doc": "application/msword",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "xls": "application/vnd.ms-excel",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "csv": "text/csv",
+                "txt": "text/plain",
+                "zip": "application/zip",
+            }
+            content_type = content_type_map.get(ext, "application/octet-stream")
+            filename = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+
+            return StreamingResponse(
+                iter([file_resp.content]),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"',
+                    "Content-Length": str(len(file_resp.content)),
+                    "Cache-Control": "private, max-age=300",
+                },
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("people-feedback file proxy error: %s", e)
+        raise HTTPException(500, "Failed to retrieve file")
+
+
+# Also serialise the file_ids in ticket/message responses so the frontend
+# can construct playback URLs. We patch the existing serialisers to include
+# voice_file_id / attachment_file_id (these are the values needed to call
+# /people-feedback/file/{file_id}).
 @router.patch("/{ticket_id}/status")
 def change_status(
     ticket_id: int,
