@@ -84,3 +84,19 @@ class AgentAskStates:
 
 class AgentProfileStates:
     VIEW_PROFILE = 180
+
+
+class AgentPeopleFeedbackStates:
+    """Conversation states for the 'Report concern about my ADM' flow.
+
+    Numbering: 200+ so it doesn't clash with existing AgentFeedbackStates (100s),
+    AgentCaseStates (120s), AgentTrainingStates (140s), AgentRegistrationStates (160s).
+    """
+    PICK_CATEGORY = 200
+    PICK_SUBCATEGORY = 201
+    ENTER_OTHER_TEXT = 202
+    ADD_DETAILS = 203
+    CONFIRM_SUBMIT = 204
+    VIEW_MY_LIST = 210
+    VIEW_TICKET_DETAIL = 211
+    REPLY_TO_TICKET = 212

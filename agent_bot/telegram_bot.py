@@ -53,6 +53,10 @@ from agent_bot.handlers.case_handler import handler as case_handler
 from agent_bot.handlers.training_handler import handler as training_handler
 from agent_bot.handlers.ask_handler import handler as ask_handler
 from agent_bot.handlers.profile_handler import register as register_profile
+from agent_bot.handlers.people_feedback_handler import (
+    submit_handler as people_feedback_submit_handler,
+    my_concerns_handler as people_feedback_my_concerns_handler,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +86,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "agent_menu_training": "/training — Product training modules",
         "agent_menu_ask": "/ask — AI se product ke baare mein poochein",
         "agent_menu_profile": "/profile — Apni profile dekhein",
+        # agent_menu_concern and agent_menu_my_concerns are handled directly
+        # by the people_feedback handler's CallbackQueryHandler — they are
+        # entry points to the conversation, so we don't map them here.
     }
 
     if data == "agent_menu_home":
@@ -121,6 +128,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # Post-init: set bot commands
 # ---------------------------------------------------------------------------
 
+async def _keepalive_ping(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ping backend health endpoint every few minutes to prevent cold starts."""
+    import httpx
+    health_url = config.API_BASE_URL.replace("/api/v1", "").rstrip("/") + "/health"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(health_url)
+            if resp.status_code == 200:
+                logger.debug("Keep-alive ping OK (%dms)", int(resp.elapsed.total_seconds() * 1000))
+            else:
+                logger.warning("Keep-alive ping returned %d", resp.status_code)
+    except Exception as e:
+        logger.warning("Keep-alive ping failed: %s", e)
+
+
 async def post_init(application: Application) -> None:
     """Set bot commands and verify backend connectivity."""
     try:
@@ -133,7 +155,7 @@ async def post_init(application: Application) -> None:
     import httpx
     try:
         health_url = config.API_BASE_URL.replace("/api/v1", "").rstrip("/") + "/health"
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(health_url)
             health = resp.json()
             logger.info("=== AGENT BOT HEALTH CHECK ===")
@@ -143,12 +165,20 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning("Could not verify backend: %s", e)
 
+    # Schedule keep-alive ping every 60s to prevent Vercel cold starts
+    application.job_queue.run_repeating(
+        _keepalive_ping, interval=60, first=10, name="backend_keepalive",
+    )
+    logger.info("Keep-alive ping scheduled (every 60s).")
+
     commands = [
         BotCommand("start", "Register / Restart"),
         BotCommand("feedback", "Submit feedback / Report issue"),
         BotCommand("cases", "Track your tickets"),
         BotCommand("training", "Product training"),
         BotCommand("ask", "Ask AI about products"),
+        BotCommand("concern", "Report concern about my ADM"),
+        BotCommand("my_concerns", "Track your ADM concerns"),
         BotCommand("profile", "View your profile"),
         BotCommand("menu", "Main menu"),
         BotCommand("help", "Help / Commands"),
@@ -218,6 +248,8 @@ def main() -> None:
     application.add_handler(case_handler)
     application.add_handler(training_handler)
     application.add_handler(ask_handler)
+    application.add_handler(people_feedback_submit_handler)
+    application.add_handler(people_feedback_my_concerns_handler)
     application.add_handler(start_handler)  # Last — so others get priority
 
     # ------------------------------------------------------------------
@@ -227,8 +259,14 @@ def main() -> None:
     register_start_extras(application)
     register_profile(application)
 
-    # Main menu callbacks
-    application.add_handler(CallbackQueryHandler(main_menu_callback, pattern=r"^agent_menu_"))
+    # Main menu callbacks — pattern is EXPLICIT to avoid stealing callbacks
+    # that belong to other conversation handlers (e.g., agent_menu_concern and
+    # agent_menu_my_concerns are entry points for the people-feedback flows
+    # and must NOT be intercepted here).
+    application.add_handler(CallbackQueryHandler(
+        main_menu_callback,
+        pattern=r"^agent_menu_(home|feedback|cases|training|ask|profile)$",
+    ))
 
     # Catch-all for unhandled text (low priority group)
     application.add_handler(
