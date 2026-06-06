@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -382,8 +383,10 @@ async def upload_attachment(
     else:
         kind = "document"
 
+    # broadcast_ref column is String(20); STAGE- (6) + 14 hex chars = 20 exact.
+    # Collision-safe: 14 hex = 56 bits of entropy, plenty for staging rows.
     stage = Broadcast(
-        broadcast_ref=f"STAGE-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}",
+        broadcast_ref=f"STAGE-{uuid.uuid4().hex[:14]}",
         type="announcement",  # filler — never sent
         title=ATTACHMENT_STAGE_TITLE,
         body="(staged attachment — not for sending)",
