@@ -28,8 +28,24 @@ import base64
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
+
+
+def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalise a datetime to UTC and strip tzinfo.
+
+    SQLAlchemy DateTime columns in this project store naive UTC; comparing
+    a tz-aware datetime against a tz-naive one raises TypeError. Pydantic
+    parses ISO strings from the frontend (e.g. "...Z") as tz-aware, so
+    every datetime arriving from a request must go through this on its
+    way into the DB or comparisons.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 from fastapi import (
     APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form,
@@ -69,6 +85,12 @@ EDITABLE_STATUSES = {"draft"}
 
 VALID_ATTACHMENT_KINDS = {"image", "voice", "document"}
 COMPOSER_ROLES = {"admin", "agency_dev"}
+
+# Schedule-time tolerance: when the user clicks "Send now" the frontend computes
+# `new Date().toISOString()` which can be a fraction of a second behind the
+# server clock. Treat anything within 10s of "now" as valid.
+from datetime import timedelta as _td  # noqa: E402
+_SCHEDULE_SKEW_TOL = _td(seconds=10)
 
 
 def _require_composer(user: User) -> None:
@@ -428,13 +450,16 @@ def create_broadcast(
         raise HTTPException(400, "On create, status must be 'draft' or 'scheduled'")
 
     spec_dict = req.target_filter.dict(exclude_none=True)
+    scheduled_at_naive = _to_naive_utc(req.scheduled_at)
 
     if req.status == "scheduled":
         # Schedule mode: filter must be non-empty
         _validate_filter_not_empty(spec_dict)
-        if req.scheduled_at is None:
+        if scheduled_at_naive is None:
             raise HTTPException(400, "scheduled_at required when status is 'scheduled'")
-        if req.scheduled_at < datetime.utcnow():
+        # Allow a tiny clock-skew tolerance (10s) for "send-now" — frontend
+        # sends `new Date().toISOString()` which can be a hair behind server clock.
+        if scheduled_at_naive < datetime.utcnow().replace(microsecond=0) - _SCHEDULE_SKEW_TOL:
             raise HTTPException(400, "scheduled_at must be in the future")
 
     bc = Broadcast(
@@ -445,7 +470,7 @@ def create_broadcast(
         link_url=req.link_url,
         link_label=req.link_label,
         target_filter=json.dumps(spec_dict),
-        scheduled_at=req.scheduled_at,
+        scheduled_at=scheduled_at_naive,
         status=req.status,
         channels=req.channels or "telegram",
         created_by_user_id=current_user.id,
@@ -564,14 +589,17 @@ def patch_broadcast(
     if req.target_filter is not None:
         bc.target_filter = json.dumps(req.target_filter.dict(exclude_none=True))
     if req.scheduled_at is not None:
-        bc.scheduled_at = req.scheduled_at
+        bc.scheduled_at = _to_naive_utc(req.scheduled_at)
     if req.status is not None:
         if req.status not in ("draft", "scheduled"):
             raise HTTPException(400, "Status can only be moved to draft or scheduled here")
         if req.status == "scheduled":
             spec = json.loads(bc.target_filter or "{}")
             _validate_filter_not_empty(spec)
-            if bc.scheduled_at is None or bc.scheduled_at < datetime.utcnow():
+            if (
+                bc.scheduled_at is None
+                or bc.scheduled_at < datetime.utcnow() - _SCHEDULE_SKEW_TOL
+            ):
                 raise HTTPException(400, "Need a future scheduled_at to move to 'scheduled'")
         bc.status = req.status
 
