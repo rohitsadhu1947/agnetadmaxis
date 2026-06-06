@@ -290,4 +290,121 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+
+  // ======================== People Feedback (Agency Development) ========================
+  // Privacy: requires admin or agency_dev role on the backend.
+  // ADM users get 403 — they must never see feedback agents file about them.
+  listPeopleFeedback: (params?: {
+    status?: string;
+    category?: string;
+    sla_breached_only?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.sla_breached_only) qs.set('sla_breached_only', 'true');
+    if (params?.search) qs.set('search', params.search);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return fetchAPI<any>(`/people-feedback${q ? '?' + q : ''}`);
+  },
+  getPeopleFeedbackStats: () => fetchAPI<any>('/people-feedback/meta/stats'),
+  getPeopleFeedbackCategories: () => fetchAPI<any>('/people-feedback/meta/categories'),
+  getPeopleFeedbackDetail: (ticketId: number) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}`),
+  replyToPeopleFeedback: (ticketId: number, text: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  addPeopleFeedbackNote: (ticketId: number, text: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/note`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  changePeopleFeedbackStatus: (ticketId: number, newStatus: string, note?: string) =>
+    fetchAPI<any>(`/people-feedback/${ticketId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ new_status: newStatus, note }),
+    }),
+  /**
+   * Build a URL to fetch a voice note or document attachment that came in via
+   * the agent Telegram bot. The backend proxies from Telegram and streams the
+   * bytes. Requires admin/agency_dev auth — include the token via fetch headers
+   * if using fetch(), or set <audio src=...> directly (server will redirect
+   * with 401 if unauthorised). We don't expose the bot token to the frontend.
+   *
+   * Because <audio src=> can't send Authorization headers, we use a query-token
+   * pattern: the page-side useEffect fetches the audio with auth, then sets
+   * the resulting blob URL on the <audio> element. See `usePeopleFeedbackFile`.
+   */
+  peopleFeedbackFileUrl: (fileId: string) => `/people-feedback/file/${encodeURIComponent(fileId)}`,
+  fetchPeopleFeedbackFileBlob: async (fileId: string): Promise<Blob> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adm_token') : null;
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+    const res = await fetch(`${base}/people-feedback/file/${encodeURIComponent(fileId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`File fetch failed: ${res.status}`);
+    return res.blob();
+  },
+
+  // ======================== Broadcasts ========================
+  getBroadcastTypes: () => fetchAPI<any>('/broadcasts/meta/types'),
+  getBroadcastFilterOptions: () => fetchAPI<any>('/broadcasts/meta/filter-options'),
+  getBroadcastStats: () => fetchAPI<any>('/broadcasts/meta/stats'),
+  listBroadcasts: (params?: { status?: string; type?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.type) qs.set('type', params.type);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return fetchAPI<any>(`/broadcasts${q ? '?' + q : ''}`);
+  },
+  getBroadcast: (id: number, includeRecipients?: boolean) =>
+    fetchAPI<any>(`/broadcasts/${id}${includeRecipients ? '?include_recipients=true' : ''}`),
+  previewBroadcastRecipients: (targetFilter: Record<string, any>) =>
+    fetchAPI<any>('/broadcasts/preview-recipients', {
+      method: 'POST',
+      body: JSON.stringify({ target_filter: targetFilter }),
+    }),
+  uploadBroadcastAttachment: async (file: File) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adm_token') : null;
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${base}/broadcasts/upload-attachment`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Upload failed: ${res.status} ${txt}`);
+    }
+    return res.json();
+  },
+  createBroadcast: (payload: any) =>
+    fetchAPI<any>('/broadcasts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  patchBroadcast: (id: number, payload: any) =>
+    fetchAPI<any>(`/broadcasts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteBroadcast: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}`, { method: 'DELETE' }),
+  sendBroadcastNow: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/send`, { method: 'POST' }),
+  retryFailedBroadcast: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/retry-failed`, { method: 'POST' }),
+  getBroadcastStatus: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/status`),
 };

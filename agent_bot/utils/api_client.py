@@ -1,8 +1,12 @@
 """
 API Client for the Agent Telegram Bot.
 Communicates with the backend's agent-portal endpoints.
+
+Includes retry logic with exponential backoff to handle Vercel
+serverless cold starts (which can take 5-15 seconds).
 """
 
+import asyncio
 import logging
 from typing import Optional, List
 
@@ -31,24 +35,53 @@ class AgentAPIClient:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _request(self, method: str, url: str, **kwargs) -> dict:
-        """Make an HTTP request and return parsed JSON or error dict."""
-        try:
-            resp = await self._client.request(method, url, **kwargs)
-            if resp.status_code >= 400:
-                detail = resp.text
-                try:
-                    detail = resp.json().get("detail", resp.text)
-                except Exception:
-                    pass
-                return {"error": True, "status": resp.status_code, "detail": detail}
-            return resp.json()
-        except httpx.TimeoutException:
-            logger.error(f"Timeout: {method} {url}")
-            return {"error": True, "status": 408, "detail": "Request timed out"}
-        except Exception as e:
-            logger.error(f"Request failed: {method} {url} — {e}")
-            return {"error": True, "status": 500, "detail": str(e)}
+    async def _request(self, method: str, url: str, retries: int = 2, **kwargs) -> dict:
+        """Make an HTTP request with automatic retry on transient errors.
+
+        Retries on 5xx errors, timeouts, and connection errors with
+        exponential backoff (1s, 2s). Does NOT retry 4xx client errors.
+        """
+        last_error = None
+
+        for attempt in range(1, retries + 2):  # 3 total attempts
+            try:
+                resp = await self._client.request(method, url, **kwargs)
+                if resp.status_code >= 500:
+                    # Server error — retry
+                    last_error = {"error": True, "status": resp.status_code, "detail": resp.text[:200]}
+                    logger.warning(
+                        "API %s %s → %d (attempt %d/%d)",
+                        method, url, resp.status_code, attempt, retries + 1,
+                    )
+                    if attempt <= retries:
+                        await asyncio.sleep(attempt)  # 1s, 2s backoff
+                    continue
+                if resp.status_code >= 400:
+                    detail = resp.text
+                    try:
+                        detail = resp.json().get("detail", resp.text)
+                    except Exception:
+                        pass
+                    return {"error": True, "status": resp.status_code, "detail": detail}
+                return resp.json()
+            except httpx.TimeoutException:
+                last_error = {"error": True, "status": 408, "detail": "Request timed out"}
+                logger.warning(
+                    "Timeout: %s %s (attempt %d/%d)", method, url, attempt, retries + 1,
+                )
+                if attempt <= retries:
+                    await asyncio.sleep(attempt)
+            except Exception as e:
+                last_error = {"error": True, "status": 500, "detail": str(e)}
+                logger.warning(
+                    "Request error: %s %s — %s (attempt %d/%d)",
+                    method, url, e, attempt, retries + 1,
+                )
+                if attempt <= retries:
+                    await asyncio.sleep(attempt)
+
+        logger.error("API %s %s failed after %d attempts", method, url, retries + 1)
+        return last_error or {"error": True, "status": 500, "detail": "Request failed after retries"}
 
     async def _get(self, url: str, **kwargs) -> dict:
         return await self._request("GET", url, **kwargs)
@@ -86,6 +119,7 @@ class AgentAPIClient:
         selected_reason_codes: Optional[List[str]] = None,
         raw_feedback_text: Optional[str] = None,
         voice_file_id: Optional[str] = None,
+        attachment_type: Optional[str] = None,
     ) -> dict:
         """Submit agent feedback to a department."""
         payload = {"agent_id": agent_id, "channel": channel}
@@ -95,6 +129,8 @@ class AgentAPIClient:
             payload["raw_feedback_text"] = raw_feedback_text
         if voice_file_id:
             payload["voice_file_id"] = voice_file_id
+        if attachment_type:
+            payload["attachment_type"] = attachment_type
         return await self._post("/agent-portal/feedback/submit", json=payload)
 
     async def get_agent_tickets(
@@ -165,6 +201,70 @@ class AgentAPIClient:
         if bucket:
             params["bucket"] = bucket
         return await self._get("/feedback-tickets/taxonomy", params=params)
+
+    # ------------------------------------------------------------------
+    # People Feedback (concerns about assigned ADM / mentor)
+    # Privacy: visible only to Agency Development team. NOT to ADM.
+    # ------------------------------------------------------------------
+
+    async def get_people_feedback_categories(self) -> dict:
+        """Fetch the category tree the bot renders."""
+        return await self._get("/people-feedback/meta/categories")
+
+    async def submit_people_feedback(
+        self,
+        agent_id: int,
+        category: str,
+        subcategory: Optional[str] = None,
+        other_text: Optional[str] = None,
+        initial_text: Optional[str] = None,
+        voice_file_id: Optional[str] = None,
+        attachment_file_id: Optional[str] = None,
+        attachment_file_name: Optional[str] = None,
+        attachment_mime_type: Optional[str] = None,
+    ) -> dict:
+        """Submit a new people-feedback ticket."""
+        payload = {
+            "agent_id": agent_id,
+            "category": category,
+            "channel": "telegram",
+        }
+        if subcategory: payload["subcategory"] = subcategory
+        if other_text: payload["other_text"] = other_text
+        if initial_text: payload["initial_text"] = initial_text
+        if voice_file_id: payload["voice_file_id"] = voice_file_id
+        if attachment_file_id:
+            payload["attachment_file_id"] = attachment_file_id
+            payload["attachment_file_name"] = attachment_file_name
+            payload["attachment_mime_type"] = attachment_mime_type
+        return await self._post("/people-feedback/submit", json=payload)
+
+    async def list_my_people_feedback(self, agent_id: int) -> dict:
+        return await self._get(f"/people-feedback/agent/{agent_id}/list")
+
+    async def get_my_people_feedback_detail(self, agent_id: int, ticket_id: int) -> dict:
+        return await self._get(f"/people-feedback/agent/{agent_id}/{ticket_id}")
+
+    async def reply_to_my_people_feedback(
+        self,
+        agent_id: int,
+        ticket_id: int,
+        text: Optional[str] = None,
+        voice_file_id: Optional[str] = None,
+        attachment_file_id: Optional[str] = None,
+        attachment_file_name: Optional[str] = None,
+        attachment_mime_type: Optional[str] = None,
+    ) -> dict:
+        payload = {}
+        if text: payload["text"] = text
+        if voice_file_id: payload["voice_file_id"] = voice_file_id
+        if attachment_file_id:
+            payload["attachment_file_id"] = attachment_file_id
+            payload["attachment_file_name"] = attachment_file_name
+            payload["attachment_mime_type"] = attachment_mime_type
+        return await self._post(
+            f"/people-feedback/agent/{agent_id}/{ticket_id}/reply", json=payload,
+        )
 
 
 # Singleton

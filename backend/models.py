@@ -293,7 +293,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String(100), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="adm")  # admin | adm
+    role = Column(String(20), nullable=False, default="adm")  # admin | adm | agency_dev
     adm_id = Column(Integer, ForeignKey("adms.id"), nullable=True)
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
@@ -591,3 +591,198 @@ class AgentDepartmentQueue(Base):
 
     # Relationships
     ticket = relationship("AgentFeedbackTicket", back_populates="queue_entry")
+
+
+# ---------------------------------------------------------------------------
+# Agent People Feedback — STRICTLY PRIVATE feedback an agent submits about
+# the person assigned to support them (ADM / Branch Manager / mentor).
+#
+# Privacy model: visible ONLY to the Agency Development team
+# (role = "agency_dev" or "admin"). The ADM the feedback is about MUST NEVER
+# see these records — enforced at the API layer with explicit role guards.
+#
+# This is deliberately a separate table from AgentFeedbackTicket — different
+# routing, different SLA, different audience. Isolation > reuse here.
+# ---------------------------------------------------------------------------
+class AgentPeopleFeedback(Base):
+    __tablename__ = "agent_people_feedback"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    ticket_ref = Column(String(20), nullable=False, unique=True, index=True)  # PF-YYYY-NNNNN
+
+    # Who submitted, and who the feedback is about
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+    target_adm_id = Column(Integer, ForeignKey("adms.id"), nullable=True, index=True)
+
+    # Category / sub-category tree — defined in routes/people_feedback.py
+    # Categories: support_unavailable | first_meeting | training_guidance | other
+    category = Column(String(40), nullable=False, index=True)
+    subcategory = Column(String(60), nullable=True)
+    # Free-text reason — used when subcategory is "other" or category is "other"
+    other_text = Column(Text, nullable=True)
+
+    # Initial submission content
+    initial_text = Column(Text, nullable=True)
+    voice_file_id = Column(String(200), nullable=True)
+    attachment_file_id = Column(String(200), nullable=True)
+    attachment_file_name = Column(String(255), nullable=True)
+    attachment_mime_type = Column(String(80), nullable=True)
+
+    # Workflow status
+    # new | reviewed | in_progress | action_taken | closed | escalated
+    status = Column(String(30), default="new", index=True)
+
+    # SLA — 3 days from creation
+    sla_due_at = Column(DateTime, nullable=True, index=True)
+    escalated_at = Column(DateTime, nullable=True)
+
+    # Agency Development team handling
+    assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    internal_notes = Column(Text, nullable=True)  # NEVER returned to agent
+
+    # Channel meta
+    channel = Column(String(20), default="telegram")
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    agent = relationship("Agent", foreign_keys=[agent_id])
+    target_adm = relationship("ADM", foreign_keys=[target_adm_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_user_id])
+    messages = relationship(
+        "AgentPeopleFeedbackMessage",
+        back_populates="ticket",
+        order_by="AgentPeopleFeedbackMessage.created_at",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentPeopleFeedbackMessage(Base):
+    """Threaded back-and-forth between the agent and the Agency Development team."""
+
+    __tablename__ = "agent_people_feedback_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    ticket_id = Column(
+        Integer,
+        ForeignKey("agent_people_feedback.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # "agent" | "agency_dev" | "system"
+    sender_role = Column(String(20), nullable=False)
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    sender_name = Column(String(200), nullable=True)
+
+    text = Column(Text, nullable=True)
+    voice_file_id = Column(String(200), nullable=True)
+    attachment_file_id = Column(String(200), nullable=True)
+    attachment_file_name = Column(String(255), nullable=True)
+    attachment_mime_type = Column(String(80), nullable=True)
+
+    # "text" | "voice" | "document" | "status_change" | "note"
+    message_type = Column(String(30), default="text")
+    is_status_change = Column(Boolean, default=False)
+    metadata_json = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    ticket = relationship("AgentPeopleFeedback", back_populates="messages")
+
+
+# ---------------------------------------------------------------------------
+# Broadcasts — central team pushes training / product / incentive / announcement
+# updates to filtered subsets of agents via Telegram (and later WhatsApp).
+# Composer-driven, scheduling-aware, status-tracked.
+# ---------------------------------------------------------------------------
+class Broadcast(Base):
+    __tablename__ = "broadcasts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    broadcast_ref = Column(String(20), nullable=False, unique=True, index=True)  # BR-YYYY-NNNNN
+
+    # Authoring
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_name = Column(String(200), nullable=True)
+
+    # Content
+    type = Column(String(30), nullable=False, index=True)  # training | product | incentive | announcement
+    title = Column(String(300), nullable=False)
+    body = Column(Text, nullable=False)
+    link_url = Column(String(500), nullable=True)
+    link_label = Column(String(120), nullable=True)
+
+    # Attachment — stored as bytes so the dispatcher can upload once + reuse
+    # Telegram returns a file_id after the first upload; we cache it to avoid
+    # re-uploading the same bytes for every recipient.
+    attachment_kind = Column(String(20), nullable=True)  # image | voice | document | None
+    attachment_file_name = Column(String(255), nullable=True)
+    attachment_mime_type = Column(String(80), nullable=True)
+    attachment_bytes = Column(Text, nullable=True)  # base64-encoded for DB portability
+    attachment_size = Column(Integer, nullable=True)
+    cached_telegram_file_id = Column(String(200), nullable=True)  # filled after first send
+
+    # Targeting — JSON of the filter spec. Resolved to recipient rows at send time.
+    target_filter = Column(Text, nullable=False, default="{}")
+
+    # Scheduling + status
+    # draft | scheduled | dispatching | completed | cancelled | failed
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    scheduled_at = Column(DateTime, nullable=True, index=True)  # null means "send now"
+    dispatched_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Channels — Telegram only for v1, but designed for easy multi-channel.
+    channels = Column(String(80), nullable=False, default="telegram")
+
+    # Live counts — denormalised so dashboard status board is fast.
+    recipient_count = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)  # agents with no telegram_chat_id
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    recipients = relationship(
+        "BroadcastRecipient",
+        back_populates="broadcast",
+        order_by="BroadcastRecipient.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class BroadcastRecipient(Base):
+    """One row per (broadcast, agent) — tracks per-recipient delivery state."""
+
+    __tablename__ = "broadcast_recipients"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    broadcast_id = Column(
+        Integer,
+        ForeignKey("broadcasts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+
+    # queued | sent | failed | skipped
+    status = Column(String(20), nullable=False, default="queued", index=True)
+
+    # Telegram delivery metadata
+    telegram_chat_id = Column(String(80), nullable=True)
+    telegram_message_id = Column(String(80), nullable=True)
+    error_reason = Column(String(500), nullable=True)
+    attempts = Column(Integer, default=0)
+
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    broadcast = relationship("Broadcast", back_populates="recipients")
+    agent = relationship("Agent", foreign_keys=[agent_id])

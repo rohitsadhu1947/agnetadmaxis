@@ -231,6 +231,26 @@ def register_agent(
 # 2. Agent Profile
 # ---------------------------------------------------------------------------
 
+@router.get("/by-chat-id/{chat_id}")
+def get_agent_by_chat_id(chat_id: str, db: Session = Depends(get_db)):
+    """Look up the agent by Telegram chat_id.
+
+    Used by the agent Telegram bot when its in-memory user_data has been
+    wiped (e.g., bot restart) and it needs to recover the agent_id without
+    asking the user to /start again. Returns 404 if not registered.
+    """
+    agent = db.query(Agent).filter(Agent.telegram_chat_id == chat_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="No agent registered with this chat_id")
+    return {
+        "agent_id": agent.id,
+        "id": agent.id,
+        "name": agent.name,
+        "phone": agent.phone,
+        "assigned_adm_id": agent.assigned_adm_id,
+    }
+
+
 @router.get("/profile/{agent_id}")
 def get_agent_profile(
     agent_id: int,
@@ -348,7 +368,7 @@ async def submit_agent_feedback(
             sender_name=agent.name,
             message_text=data.raw_feedback_text or f"Submitted feedback with reason codes: {', '.join(data.selected_reason_codes or [])}",
             voice_file_id=data.voice_file_id,
-            message_type="voice" if data.voice_file_id else "text",
+            message_type=data.attachment_type or ("voice" if data.voice_file_id else "text"),
         )
         db.add(initial_msg)
     except Exception as e:

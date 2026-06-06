@@ -27,10 +27,102 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("\U0001f916 Ask AI", callback_data="agent_menu_ask"),
         ],
         [
+            InlineKeyboardButton("\U0001f6e1️ Report ADM Concern", callback_data="agent_menu_concern"),
+            InlineKeyboardButton("\U0001f4cb My Concerns", callback_data="agent_menu_my_concerns"),
+        ],
+        [
             InlineKeyboardButton("\U0001f464 Profile", callback_data="agent_menu_profile"),
         ],
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+# ---------------------------------------------------------------------------
+# People Feedback keyboards (report concern about assigned ADM)
+# ---------------------------------------------------------------------------
+
+def people_feedback_category_keyboard(categories: list) -> InlineKeyboardMarkup:
+    """Pick a top-level category. `categories` from /people-feedback/meta/categories."""
+    items = []
+    for cat in categories:
+        items.append({
+            "text": cat["label"],
+            "data": f"pfcat_{cat['key']}",
+        })
+    grid = _build_grid(items, cols=1)
+    grid.append([InlineKeyboardButton("❌ Cancel", callback_data="pf_cancel")])
+    return InlineKeyboardMarkup(grid)
+
+
+def people_feedback_subcategory_keyboard(category_key: str, subcategories: list) -> InlineKeyboardMarkup:
+    """Pick a sub-category under a chosen category."""
+    items = []
+    for sub in subcategories:
+        items.append({
+            "text": sub["label"],
+            "data": f"pfsub_{sub['key']}",
+        })
+    grid = _build_grid(items, cols=1)
+    grid.append([
+        InlineKeyboardButton("⬅️ Back", callback_data="pf_back_cat"),
+        InlineKeyboardButton("❌ Cancel", callback_data="pf_cancel"),
+    ])
+    return InlineKeyboardMarkup(grid)
+
+
+def people_feedback_add_details_keyboard() -> InlineKeyboardMarkup:
+    """After picking category, agent can submit immediately or add text/voice/file."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Submit Now", callback_data="pf_submit"),
+        ],
+        [
+            InlineKeyboardButton("❌ Cancel", callback_data="pf_cancel"),
+        ],
+    ])
+
+
+def people_feedback_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Confirm & Submit", callback_data="pf_submit"),
+            InlineKeyboardButton("❌ Cancel", callback_data="pf_cancel"),
+        ],
+    ])
+
+
+def my_concerns_list_keyboard(tickets: list) -> InlineKeyboardMarkup:
+    """List the agent's own concerns; tap to open a detail view."""
+    items = []
+    icon = {
+        "new": "\U0001f7e1",          # yellow
+        "reviewed": "\U0001f535",     # blue
+        "in_progress": "\U0001f7e3",  # purple
+        "action_taken": "\U0001f7e2", # green
+        "closed": "⚫",           # black circle
+        "escalated": "\U0001f534",    # red
+    }
+    for t in tickets[:10]:
+        st_icon = icon.get(t.get("status", "new"), "\U0001f7e1")
+        items.append({
+            "text": f"{st_icon} {t['ticket_ref']}",
+            "data": f"pfopen_{t['id']}",
+        })
+    grid = _build_grid(items, cols=2)
+    grid.append([InlineKeyboardButton("\U0001f3e0 Main Menu", callback_data="agent_menu_home")])
+    return InlineKeyboardMarkup(grid)
+
+
+def my_concern_detail_keyboard(ticket_id: int, allow_reply: bool) -> InlineKeyboardMarkup:
+    """Actions on a specific concern: reply (if open) or back."""
+    row = []
+    if allow_reply:
+        row.append(InlineKeyboardButton("\U0001f4dd Reply", callback_data=f"pfreply_{ticket_id}"))
+    row.append(InlineKeyboardButton("\U0001f504 Refresh", callback_data=f"pfopen_{ticket_id}"))
+    return InlineKeyboardMarkup([
+        row,
+        [InlineKeyboardButton("⬅️ Back to My Concerns", callback_data="agent_menu_my_concerns")],
+    ])
 
 
 def bucket_keyboard() -> InlineKeyboardMarkup:

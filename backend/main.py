@@ -7,6 +7,7 @@ ADMs (Agency Development Managers).
 """
 
 import logging
+import os
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -178,11 +179,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Database: {db_type}")
     logger.info("=" * 60)
 
-    # Run DB init in background so healthcheck responds immediately
-    db_thread = threading.Thread(target=_background_db_init, daemon=True)
-    db_thread.start()
+    # On serverless (Vercel), run DB init synchronously since background threads die
+    # On Railway/local, run in background so healthcheck responds immediately
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    if is_serverless:
+        logger.info("Serverless environment detected — running DB init synchronously...")
+        _background_db_init()
+    else:
+        db_thread = threading.Thread(target=_background_db_init, daemon=True)
+        db_thread.start()
 
-    logger.info("Application accepting requests (DB init running in background).")
+    logger.info("Application accepting requests.")
     logger.info(f"API docs available at: http://localhost:8000/docs")
     logger.info("=" * 60)
 
@@ -241,6 +248,10 @@ from routes import (
     agent_portal_router,
     cohort_analytics_router,
     outreach_router,
+    voice_call_router,
+    HAS_VOICE_CALL,
+    people_feedback_router,
+    broadcasts_router,
 )
 
 API_PREFIX = "/api/v1"
@@ -265,7 +276,11 @@ all_routers = [
     agent_portal_router,
     cohort_analytics_router,
     outreach_router,
+    people_feedback_router,
+    broadcasts_router,
 ]
+if HAS_VOICE_CALL and voice_call_router is not None:
+    all_routers.append(voice_call_router)
 
 # Mount all routers under /api/v1 (primary)
 for r in all_routers:
