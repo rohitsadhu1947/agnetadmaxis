@@ -352,4 +352,59 @@ export const api = {
     if (!res.ok) throw new Error(`File fetch failed: ${res.status}`);
     return res.blob();
   },
+
+  // ======================== Broadcasts ========================
+  getBroadcastTypes: () => fetchAPI<any>('/broadcasts/meta/types'),
+  getBroadcastFilterOptions: () => fetchAPI<any>('/broadcasts/meta/filter-options'),
+  getBroadcastStats: () => fetchAPI<any>('/broadcasts/meta/stats'),
+  listBroadcasts: (params?: { status?: string; type?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.type) qs.set('type', params.type);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return fetchAPI<any>(`/broadcasts${q ? '?' + q : ''}`);
+  },
+  getBroadcast: (id: number, includeRecipients?: boolean) =>
+    fetchAPI<any>(`/broadcasts/${id}${includeRecipients ? '?include_recipients=true' : ''}`),
+  previewBroadcastRecipients: (targetFilter: Record<string, any>) =>
+    fetchAPI<any>('/broadcasts/preview-recipients', {
+      method: 'POST',
+      body: JSON.stringify({ target_filter: targetFilter }),
+    }),
+  uploadBroadcastAttachment: async (file: File) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adm_token') : null;
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${base}/broadcasts/upload-attachment`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Upload failed: ${res.status} ${txt}`);
+    }
+    return res.json();
+  },
+  createBroadcast: (payload: any) =>
+    fetchAPI<any>('/broadcasts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  patchBroadcast: (id: number, payload: any) =>
+    fetchAPI<any>(`/broadcasts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteBroadcast: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}`, { method: 'DELETE' }),
+  sendBroadcastNow: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/send`, { method: 'POST' }),
+  retryFailedBroadcast: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/retry-failed`, { method: 'POST' }),
+  getBroadcastStatus: (id: number) =>
+    fetchAPI<any>(`/broadcasts/${id}/status`),
 };

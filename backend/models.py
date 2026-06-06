@@ -691,3 +691,98 @@ class AgentPeopleFeedbackMessage(Base):
 
     # Relationships
     ticket = relationship("AgentPeopleFeedback", back_populates="messages")
+
+
+# ---------------------------------------------------------------------------
+# Broadcasts — central team pushes training / product / incentive / announcement
+# updates to filtered subsets of agents via Telegram (and later WhatsApp).
+# Composer-driven, scheduling-aware, status-tracked.
+# ---------------------------------------------------------------------------
+class Broadcast(Base):
+    __tablename__ = "broadcasts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    broadcast_ref = Column(String(20), nullable=False, unique=True, index=True)  # BR-YYYY-NNNNN
+
+    # Authoring
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_name = Column(String(200), nullable=True)
+
+    # Content
+    type = Column(String(30), nullable=False, index=True)  # training | product | incentive | announcement
+    title = Column(String(300), nullable=False)
+    body = Column(Text, nullable=False)
+    link_url = Column(String(500), nullable=True)
+    link_label = Column(String(120), nullable=True)
+
+    # Attachment — stored as bytes so the dispatcher can upload once + reuse
+    # Telegram returns a file_id after the first upload; we cache it to avoid
+    # re-uploading the same bytes for every recipient.
+    attachment_kind = Column(String(20), nullable=True)  # image | voice | document | None
+    attachment_file_name = Column(String(255), nullable=True)
+    attachment_mime_type = Column(String(80), nullable=True)
+    attachment_bytes = Column(Text, nullable=True)  # base64-encoded for DB portability
+    attachment_size = Column(Integer, nullable=True)
+    cached_telegram_file_id = Column(String(200), nullable=True)  # filled after first send
+
+    # Targeting — JSON of the filter spec. Resolved to recipient rows at send time.
+    target_filter = Column(Text, nullable=False, default="{}")
+
+    # Scheduling + status
+    # draft | scheduled | dispatching | completed | cancelled | failed
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    scheduled_at = Column(DateTime, nullable=True, index=True)  # null means "send now"
+    dispatched_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Channels — Telegram only for v1, but designed for easy multi-channel.
+    channels = Column(String(80), nullable=False, default="telegram")
+
+    # Live counts — denormalised so dashboard status board is fast.
+    recipient_count = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)  # agents with no telegram_chat_id
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    recipients = relationship(
+        "BroadcastRecipient",
+        back_populates="broadcast",
+        order_by="BroadcastRecipient.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class BroadcastRecipient(Base):
+    """One row per (broadcast, agent) — tracks per-recipient delivery state."""
+
+    __tablename__ = "broadcast_recipients"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    broadcast_id = Column(
+        Integer,
+        ForeignKey("broadcasts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+
+    # queued | sent | failed | skipped
+    status = Column(String(20), nullable=False, default="queued", index=True)
+
+    # Telegram delivery metadata
+    telegram_chat_id = Column(String(80), nullable=True)
+    telegram_message_id = Column(String(80), nullable=True)
+    error_reason = Column(String(500), nullable=True)
+    attempts = Column(Integer, default=0)
+
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    broadcast = relationship("Broadcast", back_populates="recipients")
+    agent = relationship("Agent", foreign_keys=[agent_id])

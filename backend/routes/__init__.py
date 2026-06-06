@@ -33,6 +33,7 @@ except ImportError:
     HAS_VOICE_CALL = False
 
 from routes.people_feedback import router as people_feedback_router
+from routes.broadcasts import router as broadcasts_router
 
 __all__ = [
     "agents_router",
@@ -57,4 +58,5 @@ __all__ = [
     "voice_call_router",
     "HAS_VOICE_CALL",
     "people_feedback_router",
+    "broadcasts_router",
 ]

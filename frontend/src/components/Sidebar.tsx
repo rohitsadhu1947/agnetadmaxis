@@ -23,6 +23,7 @@ import {
   PieChart,
   Send,
   ShieldAlert,
+  Megaphone,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -32,6 +33,7 @@ const adminNavItems = [
   { href: '/adm', label: 'ADM Performance', icon: BarChart3 },
   { href: '/feedback-tickets', label: 'Feedback Intelligence', icon: Ticket },
   { href: '/people-feedback', label: 'People Feedback', icon: ShieldAlert },
+  { href: '/broadcasts', label: 'Broadcasts', icon: Megaphone },
   { href: '/feedback', label: 'Feedback Analytics', icon: MessageSquare },
   { href: '/training', label: 'Training', icon: GraduationCap },
   { href: '/activity', label: 'Live Activity', icon: Activity },

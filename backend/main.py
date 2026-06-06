@@ -251,6 +251,7 @@ from routes import (
     voice_call_router,
     HAS_VOICE_CALL,
     people_feedback_router,
+    broadcasts_router,
 )
 
 API_PREFIX = "/api/v1"
@@ -276,6 +277,7 @@ all_routers = [
     cohort_analytics_router,
     outreach_router,
     people_feedback_router,
+    broadcasts_router,
 ]
 if HAS_VOICE_CALL and voice_call_router is not None:
     all_routers.append(voice_call_router)
